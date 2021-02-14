@@ -19,18 +19,17 @@ class d_interpolator():
 
     return np.take(self.dydx, inds)
 
-
 def sigmoid(x):
   return 1 / (1 + np.exp(-x))
 
 def invsigmoid(x, eps=1e-15):
-  return np.log(x + eps) - np.log(1 - x + eps)
+  return t.log(x + eps) - t.log(1 - x + eps)
 
 def sigmoiddot(x):
-  return sigmoid(x) * (1 - sigmoid(x))
+  return t.sigmoid(x) * (1 - t.sigmoid(x))
 
 def invsigmoiddot(x):
-  return 1/(x * (1 - x))
+  return 1 / (x * (1 - x))
 
 def generate_data(d, M, data_type='gaussian', rho=0.5):
   # returns an M x d matrix of samples from a copula
@@ -57,3 +56,17 @@ def gaussian_copula_log_density(u, rho):
     lc_i = - t.log(t.sqrt(1 - rho ** 2)) - exponent
     lc += [lc_i]
   return lc
+
+def bisect(f, x, lb, ub, n_iter=35):
+  # inverts a scalar function f by bisection at x points
+  xl = t.ones_like(x) * lb
+  xh = t.ones_like(x) * ub
+  x_temp = (xl + xh) / 2
+
+  for _ in range(n_iter):
+    fmx = f(x_temp) - x
+    xl = t.where(fmx < 0, x_temp, xl)
+    xh = t.where(fmx < 0, xh, x_temp)
+    x_temp = (xl + xh) / 2
+
+  return x_temp

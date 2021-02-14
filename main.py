@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import utils
 import models
 
-#%% fitting the copula to data
+#%% fitting the neural copula to gaussian data
 #rhos = [-.95, -.75, 0, .75, .95]
 rhos = [.8]
 M = 500
@@ -20,19 +20,16 @@ plot_NLL = True
 np.random.seed(0)
 t.manual_seed(0)
 
-fig, axs = plt.subplots(len(rhos), 2, figsize=(6, 3*len(rhos)))
-if len(rhos) == 1:
-  axs = np.expand_dims(axs, 0)
-
+all_outs = []
 for nr, rho in enumerate(rhos):
   NLLs = []
+  outs = {}
   data = utils.generate_data(d, M, rho=rho)
   C = models.CopNet(n, d, b_bias=0, b_std=3,)
   verbose = True
 
   optimizer = optim.Adam(C.parameters(), lr=5e-3)
   scheduler = t.optim.lr_scheduler.StepLR(optimizer, step_size=int(3*n_iters/4), gamma=0.1)
-  #clip_max_norm =.2
 
   t.autograd.set_detect_anomaly(True)
 
@@ -42,8 +39,6 @@ for nr, rho in enumerate(rhos):
     optimizer.zero_grad()
     NLL = C.NLL(data)
     NLL.backward()
-    # if clip_max_norm > 0:
-    #   t.nn.utils.clip_grad_norm_(C.parameters(), clip_max_norm)
     optimizer.step()
     scheduler.step()
 
@@ -62,12 +57,27 @@ for nr, rho in enumerate(rhos):
     plt.ylabel('NLL per datapoint')
     plt.show()
 
-  # sample and compare to data
-  samples = C.sample(n_samples_for_figs)
-  axs[nr, 0].scatter(data[:n_samples_for_figs,0], data[:n_samples_for_figs,1],)
-  axs[nr, 0].set_ylabel(str(rho))
-  axs[nr, 1].scatter(samples[:,0], samples[:,1])
+  outs['NLLs'] = NLLs
+  outs['model'] = C
+  outs['data'] = data
+  outs['rho'] = rho
+  all_outs += [outs]
 
+# sampling
+for outs in all_outs:
+  samples = outs['model'].sample(n_samples_for_figs)
+  outs['samples'] = samples
+
+# plotting samples
+fig, axs = plt.subplots(len(rhos), 2, figsize=(6, 3*len(rhos)))
+if len(rhos) == 1:
+  axs = np.expand_dims(axs, 0)
+
+for n_outs, outs in enumerate(all_outs):
+  axs[n_outs, 0].scatter(outs['data'][:n_samples_for_figs,0],
+                         outs['data'][:n_samples_for_figs,1],)
+  axs[n_outs, 0].set_ylabel(str(outs['rho']))
+  axs[n_outs, 1].scatter(outs['samples'][:,0], outs['samples'][:,1])
 axs[0,0].set_title('training data')
 axs[0,1].set_title('neural copula')
 fig.show()
@@ -103,7 +113,6 @@ for ni, ind in enumerate([0, 7, 14, 21, -1]):
   rx = x[::-1]
   axs[ni].title.set_text(str(rx[ind]))
 plt.show()
-
 
 #%% compare g to inverse (if the scatter plot and curve match, z is a good approx for g^-1
 self = C
