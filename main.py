@@ -115,11 +115,11 @@ for ni, ind in enumerate([0, 7, 14, 21, -1]):
   axs[ni].title.set_text(str(rx[ind]))
 plt.show()
 
-#%% compare g to inverse (if the scatter plot and curve match, z is a good approx for g^-1
-self = C
-data = self.sample_scale * t.randn(1000, self.d, dtype=t.double)
-g = self.g(data)
-plt.plot(sorted(g[:,0].detach().numpy()), sorted(data[:,0].detach().numpy()), lw=4)
-plt.plot(np.linspace(0.0001,.9999,1000), C.z[0](np.linspace(0.0001,.9999,1000)),'r', lw=4)
-plt.legend(['g^{-1}',' z'])
-plt.show()
+# #%% compare g to inverse (if the scatter plot and curve match, z is a good approx for g^-1
+# self = C
+# data = self.sample_scale * t.randn(1000, self.d, dtype=t.double)
+# g = self.g(data)
+# plt.plot(sorted(g[:,0].detach().numpy()), sorted(data[:,0].detach().numpy()), lw=4)
+# plt.plot(np.linspace(0.0001,.9999,1000), C.z[0](np.linspace(0.0001,.9999,1000)),'r', lw=4)
+# plt.legend(['g^{-1}',' z'])
+# plt.show()
