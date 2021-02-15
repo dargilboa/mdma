@@ -3,7 +3,6 @@ import torch.nn as nn
 import numpy as np
 from xitorch.interpolate import Interp1D
 import utils
-from scipy.optimize import bisect
 
 # %%
 class CopNet(nn.Module):
