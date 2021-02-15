@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from xitorch.interpolate import Interp1D
 import utils
+from scipy.optimize import bisect
 
 # %%
 class CopNet(nn.Module):
@@ -47,18 +48,6 @@ class CopNet(nn.Module):
       samples[k] = self.invert(cC, R[k])
 
     return samples.transpose(0,1)
-    #
-    # # old
-    # samples = []
-    # for i in range(M):
-    #   r = t.rand(self.d)
-    #   us = r[0].unsqueeze(-1)
-    #   for k in range(1, self.d):
-    #     cC = self.condC(k, us)
-    #     u_k = self.invert(cC.detach().numpy(), r[k].detach().numpy())
-    #     us += [u_k]
-    #   samples += [us]
-    # return np.asarray(samples)
 
   def condC(self, k, us):
     # returns a function C(u_k|u_1,...,u_{k-1}) for some 1 <= k < d
@@ -77,6 +66,38 @@ class CopNet(nn.Module):
                                              + self.b[:,k].unsqueeze(-1).expand(self.n, M))) # M
     return lambda u: cond_CDF(u) / cond_CDF(t.ones(M))
 
+  def condC_old(self, k, us):
+    # returns C(u_k|u_1,...,u_{k-1}) for some 1 <= i <= d
+    # us: length k-1 vector of conditional values for u_1 ... u_{k-1}
+    # returns a numpy function to be fed into bisect
+    zu = t.Tensor([z_j(t.tensor(u_j)) for z_j, u_j in zip(self.z[:k], us)])
+    zdu = t.Tensor([zdot_j(t.tensor([u_j]))[0] for zdot_j, u_j in zip(self.zdot[:k], us)])
+    A = t.einsum('ij,j->ij', t.exp(self.W[:,:k]), zu) + self.b[:,:k] # n x k-1
+    AA = self.phidot(A) * t.exp(self.W[:,:k]) * zdu.unsqueeze(0).expand(self.n, k)
+    AAA = t.prod(AA,1) # n
+    iZ = 1/(t.sum(t.exp(self.a))).detach().numpy()
+    cond_CDF = lambda u: iZ * np.sum(t.exp(self.a).detach().numpy() * AAA.detach().numpy()
+                                    * self.phi_np(t.exp(self.W[:,k]).detach().numpy() * self.z[k](t.tensor(u)).detach().numpy()
+                                               + self.b[:,k].detach().numpy()))
+    return lambda u: cond_CDF(u) / cond_CDF(1)
+
+  def invert_old(self, f, r, xtol=1e-8):
+    # return f^-1(r)
+    return bisect(lambda x: f(x) - r, 0, 1, xtol=xtol)
+
+  def sample_old(self, M):
+    # return M samples from the copula using the inverse Rosenblatt formula
+    samples = []
+    for i in range(M):
+      r = np.random.rand(self.d)
+      us = [r[0]]
+      for k in range(1, self.d):
+        cC = self.condC_old(k, us)
+        u_k = self.invert_old(cC, r[k])
+        us += [u_k]
+      samples += [us]
+    return np.asarray(samples)
+
   def NLL(self, u):
     # compute NLL (per datapoint)
     # u: M x d array
@@ -94,8 +115,8 @@ class CopNet(nn.Module):
     # compute log density
     # u: M x d array
     M = u.shape[0]
-    zu = t.Tensor([z_j(u_j) for z_j, u_j in zip(self.z, u.transpose(0,1))])
-    zdu = t.Tensor([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, u.transpose(0, 1))])
+    zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, u.transpose(0,1))])
+    zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, u.transpose(0, 1))])
     A = t.einsum('ij,jm->ijm', t.exp(self.W), zu) + self.b.unsqueeze(-1).expand(self.n, self.d, M)
     AA = self.phidot(A) * t.exp(self.W).unsqueeze(-1).expand(self.n, self.d, M) * zdu.unsqueeze(0).expand(self.n, self.d, M)
     AAA = t.prod(AA,1) # n x M

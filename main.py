@@ -82,6 +82,7 @@ axs[0,0].set_title('training data')
 axs[0,1].set_title('neural copula')
 fig.show()
 
+
 #%% plot log density
 x = np.linspace(0.01, .99, 30)
 y = np.linspace(0.01, .99, 30)

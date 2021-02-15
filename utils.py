@@ -23,7 +23,10 @@ def sigmoid(x):
   return 1 / (1 + np.exp(-x))
 
 def invsigmoid(x, eps=1e-15):
-  return t.log(x + eps) - t.log(1 - x + eps)
+  if type(x) == float or type(x) == np.double:
+    return np.log(x + eps) - np.log(1 - x + eps)
+  else:
+    return t.log(x + eps) - t.log(1 - x + eps)
 
 def sigmoiddot(x):
   return t.sigmoid(x) * (1 - t.sigmoid(x))
