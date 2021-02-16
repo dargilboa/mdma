@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import utils
 import models
+from scipy.stats import norm
 
 #%% fitting the neural copula to gaussian data
 #rhos = [-.95, -.75, 0, .75, .95]
@@ -12,23 +13,33 @@ rhos = [.8]
 M = 500
 d = 2
 n = 500
-n_iters = 500
+n_iters = 1000
 n_samples_for_figs = 200
-print_every = 1
+print_every = 20
 update_z_every = 1
+b_std = 0.1
+W_std = 0.1
+a_std = 1.0
 plot_NLL = True
-np.random.seed(0)
-t.manual_seed(0)
+np.random.seed(1)
+t.manual_seed(1)
+lambda_l2 = 1e-4
+
+if t.cuda.is_available():
+  t.set_default_tensor_type('torch.cuda.DoubleTensor')
+else:
+  t.set_default_tensor_type('torch.DoubleTensor')
 
 all_outs = []
 for nr, rho in enumerate(rhos):
   NLLs = []
   outs = {}
   data = utils.generate_data(d, M, rho=rho)
-  C = models.CopNet(n, d, b_bias=0, b_std=3,)
+  C = models.CopNet(n, d, b_bias=0, b_std=b_std, W_std=W_std, a_std=a_std, z_update_samples=M)
   verbose = True
 
   optimizer = optim.Adam(C.parameters(), lr=5e-3)
+  #optimizer = optim.SGD(C.parameters(), lr=2)
   scheduler = t.optim.lr_scheduler.StepLR(optimizer, step_size=int(3*n_iters/4), gamma=0.1)
 
   t.autograd.set_detect_anomaly(True)
@@ -38,7 +49,8 @@ for nr, rho in enumerate(rhos):
     # update parameters
     optimizer.zero_grad()
     NLL = C.NLL(data)
-    NLL.backward()
+    obj = NLL + lambda_l2 * (t.norm(C.W) ** 2 + t.norm(C.a) ** 2 + t.norm(C.b) ** 2)
+    obj.backward()
     optimizer.step()
     scheduler.step()
 
@@ -46,9 +58,9 @@ for nr, rho in enumerate(rhos):
     if i % update_z_every == 0:
       C.update_zs()
 
-    NLLs.append(NLL.detach().numpy())
+    NLLs.append(NLL.cpu().detach().numpy())
     if verbose and i % print_every == 0:
-      print('iteration {}, NLL: {:.4f}'.format(i,NLL.detach().numpy()))
+      print('iteration {}, NLL: {:.4f}'.format(i,NLL.cpu().detach().numpy()))
 
   if plot_NLL:
     plt.figure()
@@ -61,27 +73,30 @@ for nr, rho in enumerate(rhos):
   outs['model'] = C
   outs['data'] = data
   outs['rho'] = rho
+  outs['lambda_l2'] = lambda_l2
   all_outs += [outs]
 
-# sampling
-for outs in all_outs:
-  samples = outs['model'].sample(n_samples_for_figs)
-  outs['samples'] = samples
+#%% plot log density contours after applying inverse gaussian CDF
+grid_res = 70
+x = np.linspace(0.01, .99, grid_res)
+y = np.linspace(0.01, .99, grid_res)
+grid = np.meshgrid(x, y)
+flat_grid = t.tensor([g.flatten() for g in grid]).transpose(0,1)
+log_densities = C.log_density(flat_grid).cpu().detach().numpy().reshape((grid_res,grid_res))
+gauss_log_densities = utils.gaussian_copula_log_density(flat_grid, rho=0.8)
+gauss_log_densities = np.array([g.cpu().detach().numpy() for g in gauss_log_densities]).reshape((grid_res,grid_res))
 
-# plotting samples
-fig, axs = plt.subplots(len(rhos), 2, figsize=(6, 3*len(rhos)))
-if len(rhos) == 1:
-  axs = np.expand_dims(axs, 0)
-
-for n_outs, outs in enumerate(all_outs):
-  axs[n_outs, 0].scatter(outs['data'][:n_samples_for_figs,0],
-                         outs['data'][:n_samples_for_figs,1],)
-  axs[n_outs, 0].set_ylabel(str(outs['rho']))
-  axs[n_outs, 1].scatter(outs['samples'][:,0], outs['samples'][:,1])
-axs[0,0].set_title('training data')
-axs[0,1].set_title('neural copula')
-fig.show()
-
+iX, iY = norm.ppf(grid)
+contours = [-2.8, -2.5, -2.2, -1.9, -1.6]
+colors_k = ['k'] * len(contours)
+colors_r = ['r'] * len(contours)
+plt.contour(iX, iY, gauss_log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
+            colors=colors_k)
+plt.contour(iX, iY, log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
+            colors=colors_r)
+plt.title('n: {}, M: {}, n_iters: {}, lambda_l2: {}, b_std: {}, a_std: {}, W_std: {}'
+          .format(n, M, n_iters, lambda_l2, b_std, a_std, W_std))
+plt.show()
 
 #%% plot log density
 x = np.linspace(0.01, .99, 30)
@@ -108,13 +123,35 @@ fig.show()
 
 #%% plot slices of density
 fig, axs = plt.subplots(1,5, figsize=(15, 3))
+plt.setp(axs, xticks=[0,29], xticklabels=['0', '1'])
 for ni, ind in enumerate([0, 7, 14, 21, -1]):
   axs[ni].plot(np.exp(log_densities_flipped[ind]))
   axs[ni].plot(np.exp(gauss_log_densities_flipped[ind]))
   rx = x[::-1]
-  axs[ni].title.set_text(str(rx[ind]))
+  axs[ni].title.set_text('$u_2$={:.4f}'.format(rx[ind]))
+axs[0].legend(['NC', 'gaussian'])
+axs[0].set_ylabel('$p(u_1|u_2)$')
 plt.show()
 
+#%%
+# sampling
+for outs in all_outs:
+  samples = outs['model'].sample(n_samples_for_figs)
+  outs['samples'] = samples
+
+# plotting samples
+fig, axs = plt.subplots(len(rhos), 2, figsize=(6, 3*len(rhos)))
+if len(rhos) == 1:
+  axs = np.expand_dims(axs, 0)
+
+for n_outs, outs in enumerate(all_outs):
+  axs[n_outs, 0].scatter(outs['data'][:n_samples_for_figs,0],
+                         outs['data'][:n_samples_for_figs,1],)
+  axs[n_outs, 0].set_ylabel(str(outs['rho']))
+  axs[n_outs, 1].scatter(outs['samples'][:,0], outs['samples'][:,1])
+axs[0,0].set_title('training data')
+axs[0,1].set_title('neural copula')
+fig.show()
 # #%% compare g to inverse (if the scatter plot and curve match, z is a good approx for g^-1
 # self = C
 # data = self.sample_scale * t.randn(1000, self.d, dtype=t.double)

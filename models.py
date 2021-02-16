@@ -1,26 +1,24 @@
 import torch as t
 import torch.nn as nn
-import numpy as np
 from xitorch.interpolate import Interp1D
 import utils
 
 # %%
 class CopNet(nn.Module):
-  def __init__(self, n, d, device='cpu', sample_scale=3, n_samples=1000, W_std=0.1, b_bias=0, b_std=1.0):
+  def __init__(self, n, d, z_update_samples_scale=3, z_update_samples=1000, W_std=0.1,
+               b_bias=0, b_std=0.1, a_std=1.0):
     super(CopNet, self).__init__()
-    self.device = device
     self.n = n
     self.d = d
-    self.sample_scale = sample_scale
-    self.n_samples = n_samples
+    self.z_update_samples_scale = z_update_samples_scale
+    self.z_update_samples = z_update_samples
     self.phi = t.sigmoid
-    self.phi_np = utils.sigmoid
     self.phidot = lambda x: t.sigmoid(x) * (1 - t.sigmoid(x))
 
     # initialize trianable parameters
-    self.W = nn.Parameter(t.Tensor(W_std * np.random.randn(n, d)).double())
-    self.b = nn.Parameter(t.Tensor(b_std * np.random.randn(n, d) + b_bias).double())
-    self.a = nn.Parameter(t.Tensor(np.random.randn(n, )).double())
+    self.W = nn.Parameter(t.Tensor(W_std * t.randn(n, d)))
+    self.b = nn.Parameter(t.Tensor(b_std * t.randn(n, d) + b_bias))
+    self.a = nn.Parameter(t.Tensor(a_std * t.randn(n, )))
 
     # initialize z using normal samples
     self.update_zs()
@@ -28,7 +26,7 @@ class CopNet(nn.Module):
   def update_zs(self, data=None):
     if data is None:
       # generate data if not provided
-      data = self.sample_scale * t.randn(self.n_samples, self.d, dtype=t.double)
+      data = self.z_update_samples_scale * t.randn(self.z_update_samples, self.d)
     g = self.g(data)
     self.z, self.zdot = self.z_zdot(data, g)
 
@@ -39,7 +37,7 @@ class CopNet(nn.Module):
 
   def sample(self, M):
     # return M x d tensor of samples from the copula using the inverse Rosenblatt formula
-    R = t.rand(self.d, M, dtype=t.double)
+    R = t.rand(self.d, M)
     samples = t.zeros_like(R)
     samples[0] = R[0]
     for k in range(1, self.d):
@@ -116,7 +114,7 @@ class CopNet(nn.Module):
     s, _ = t.sort(s, dim=1)
     tilde_splines = [Interp1D(g_k, s_k, method='linear', extrap='bound') for g_k, s_k in zip(g, s)]
 
-    dsdg = (s[:,1:] - s[:,:-1]) / (g[:,1:] - g[:,:-1])
+    dsdg = t.div(s[:,1:] - s[:,:-1], g[:,1:] - g[:,:-1])
     mg = (g[:,:-1] + g[:,1:]) / 2
     tilde_dsplines = [Interp1D(mg_k, ds_k, method='linear', extrap='bound') for mg_k, ds_k in zip(mg, dsdg)]
 
