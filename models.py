@@ -26,30 +26,33 @@ class CopNet(nn.Module):
   def update_zs(self, data=None):
     if data is None:
       # generate data if not provided
-      data = self.z_update_samples_scale * t.randn(self.z_update_samples, self.d)
-    g = self.g(data)
-    self.z, self.zdot = self.z_zdot(data, g)
+      zdata = self.z_update_samples_scale * t.randn(self.z_update_samples, self.d)
+    else:
+      # assuming data is samples from the hypercube, transforming with z
+      with t.no_grad():
+        zdata = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, data.transpose(0, 1))]).transpose(0,1)
+    g = self.g(zdata)
+    self.z, self.zdot = self.z_zdot(zdata, g)
 
-  def invert(self, f, r, xtol=1e-8):
+  def invert(self, f, r, n_bisect_iter=35):
     # return f^-1(r)
-    #return bisect(lambda x: f(x) - r, 0, 1, xtol=xtol)
-    return utils.bisect(f, r, 0, 1)
+    return utils.bisect(f, r, 0, 1, n_iter=n_bisect_iter)
 
-  def sample(self, M):
+  def sample(self, M, n_bisect_iter=35):
     # return M x d tensor of samples from the copula using the inverse Rosenblatt formula
     R = t.rand(self.d, M)
     samples = t.zeros_like(R)
     samples[0] = R[0]
     for k in range(1, self.d):
       cC = self.condC(k, samples[:k])
-      samples[k] = self.invert(cC, R[k])
+      samples[k] = self.invert(cC, R[k], n_bisect_iter=n_bisect_iter)
 
     return samples.transpose(0,1)
 
   def condC(self, k, us):
     # returns a function C(u_k|u_1,...,u_{k-1}) for some 1 <= k < d
     # this function takes an M-dimensional vector as input
-    # us: k-1 x M vector of conditional values for u_1 ... u_{k-1} at M sampled points
+    # us: k-1 x M tensor of conditional values for u_1 ... u_{k-1} at M sampled points
 
     M = us.shape[1]
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z[:k], us)])
@@ -65,7 +68,7 @@ class CopNet(nn.Module):
 
   def NLL(self, u):
     # compute NLL (per datapoint)
-    # u: M x d array
+    # u: M x d tensor
     M = u.shape[0]
     NLL = t.log(t.sum(t.exp(self.a)))
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, u.transpose(0,1))])
@@ -78,7 +81,7 @@ class CopNet(nn.Module):
 
   def log_density(self, u):
     # compute log density
-    # u: M x d array
+    # u: M x d tensor
     M = u.shape[0]
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, u.transpose(0,1))])
     zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, u.transpose(0, 1))])
@@ -89,15 +92,15 @@ class CopNet(nn.Module):
     return log_density
 
   def g(self, u):
-    # u: M x d array of points
+    # u: M x d tensor of points
     M = u.size(0)
     A = t.einsum('ik,ka->ika', t.exp(self.W), u.transpose(0, 1)) + self.b.unsqueeze(-1).expand(self.n, self.d, M)
     return t.einsum('i,ika->ka', t.exp(self.a), self.phi(A)).transpose(0, 1) / t.sum(t.exp(self.a))
 
   def z_zdot(self, s, g):
     # returns a list of d functions z_j = g_j^{-1} by using spline interpolation
-    # s: M x d array
-    # g: M x d array such that s = z(g), where g : R -> [0,1]
+    # s: M x d tensor
+    # g: M x d tensor such that s = z(g), where g : R -> [0,1]
 
     s = s.transpose(0,1)
     g = g.transpose(0,1)
@@ -121,7 +124,7 @@ class CopNet(nn.Module):
     z = [lambda x: utils.invsigmoid(ztilde(x)) for ztilde in tilde_splines]
     zdot = [lambda x: utils.invsigmoiddot(ztilde(x)) * ztildedot(x) for ztilde, ztildedot in zip(tilde_splines,
                                                                                             tilde_dsplines)]
-    return z, zdot#splines, dsplines
+    return z, zdot
 
   def stabilize(self, u, stab_const=1e-5):
     return t.clamp(u, stab_const, 1 - stab_const)

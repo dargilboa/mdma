@@ -6,24 +6,28 @@ import matplotlib.pyplot as plt
 import utils
 import models
 from scipy.stats import norm
+import datetime
 
 #%% fitting the neural copula to gaussian data
 #rhos = [-.95, -.75, 0, .75, .95]
 rhos = [.8]
 M = 500
 d = 2
-n = 500
-n_iters = 1000
+n = 100
+n_iters = 500
 n_samples_for_figs = 200
 print_every = 20
 update_z_every = 1
-b_std = 0.1
-W_std = 0.1
-a_std = 1.0
+b_std = 0.01
+W_std = 0.01
+a_std = 0.01
 plot_NLL = True
 np.random.seed(1)
 t.manual_seed(1)
 lambda_l2 = 1e-4
+beta = 0.5
+ent_samples = 800
+batch_size = 100
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.DoubleTensor')
@@ -39,7 +43,7 @@ for nr, rho in enumerate(rhos):
   verbose = True
 
   optimizer = optim.Adam(C.parameters(), lr=5e-3)
-  #optimizer = optim.SGD(C.parameters(), lr=2)
+  #optimizer = optim.SGD(C.parameters(), lr=0.5, momentum=0.9)
   scheduler = t.optim.lr_scheduler.StepLR(optimizer, step_size=int(3*n_iters/4), gamma=0.1)
 
   t.autograd.set_detect_anomaly(True)
@@ -48,15 +52,23 @@ for nr, rho in enumerate(rhos):
   for i in range(n_iters):
     # update parameters
     optimizer.zero_grad()
+    #inds = t.multinomial(t.tensor(range(M), dtype=t.float), num_samples=batch_size, replacement=True)
     NLL = C.NLL(data)
-    obj = NLL + lambda_l2 * (t.norm(C.W) ** 2 + t.norm(C.a) ** 2 + t.norm(C.b) ** 2)
+    L2 = (t.norm(C.W) ** 2 + t.norm(C.a) ** 2 + t.norm(C.b) ** 2)
+    #samples = C.sample(ent_samples, n_bisect_iter=25)
+    # ent = C.NLL(samples)
+    #hessians = sum([t.trace(t.autograd.functional.hessian(C.log_density, d.unsqueeze(0)).squeeze()) for d in data])
+    #print(hessians)
+    obj = NLL + lambda_l2 * L2
+    #obj = obj - beta * ent
+    #obj = obj + beta * hessians
     obj.backward()
     optimizer.step()
     scheduler.step()
 
     # update z approximation, can also take the data as input
     if i % update_z_every == 0:
-      C.update_zs()
+      C.update_zs(data)
 
     NLLs.append(NLL.cpu().detach().numpy())
     if verbose and i % print_every == 0:
@@ -76,7 +88,7 @@ for nr, rho in enumerate(rhos):
   outs['lambda_l2'] = lambda_l2
   all_outs += [outs]
 
-#%% plot log density contours after applying inverse gaussian CDF
+##%% plot log density contours after applying inverse gaussian CDF
 grid_res = 70
 x = np.linspace(0.01, .99, grid_res)
 y = np.linspace(0.01, .99, grid_res)
@@ -94,8 +106,10 @@ plt.contour(iX, iY, gauss_log_densities + norm.logpdf(iX) + norm.logpdf(iY), con
             colors=colors_k)
 plt.contour(iX, iY, log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
             colors=colors_r)
-plt.title('n: {}, M: {}, n_iters: {}, lambda_l2: {}, b_std: {}, a_std: {}, W_std: {}'
+plt.title('n: {}, M: {}, n_iters: {}, lambda_l2: {}, \n b_std: {}, a_std: {}, W_std: {}'
           .format(n, M, n_iters, lambda_l2, b_std, a_std, W_std))
+#plt.scatter(norm.ppf(data.cpu()[:,0]), norm.ppf(data.cpu()[:,1]))
+plt.xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 plt.show()
 
 #%% plot log density
