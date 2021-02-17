@@ -124,7 +124,7 @@ plt.show()
 # NLL = eNLL(data)
 # with backpack(DiagHessian(), HMP()):
 #   # keep graph for autodiff HVPs
-#   NLL.backward(retain_graph=True)
+#  NLL.backward(retain_graph=True)
 
 
 #%% plot log density
