@@ -28,6 +28,7 @@ lambda_l2 = 1e-4
 beta = 0.5
 ent_samples = 800
 batch_size = 100
+clip_max_norm = 0# .0000001
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.DoubleTensor')
@@ -63,6 +64,9 @@ for nr, rho in enumerate(rhos):
     #obj = obj - beta * ent
     #obj = obj + beta * hessians
     obj.backward()
+    if clip_max_norm > 0:
+      t.nn.utils.clip_grad_value_(C.parameters(), clip_max_norm)
+
     optimizer.step()
     scheduler.step()
 
@@ -89,17 +93,16 @@ for nr, rho in enumerate(rhos):
   all_outs += [outs]
 
 ##%% plot log density contours after applying inverse gaussian CDF
-grid_res = 70
-x = np.linspace(0.01, .99, grid_res)
-y = np.linspace(0.01, .99, grid_res)
+grid_res = 200
+x = np.linspace(0.001, .999, grid_res)
+y = np.linspace(0.001, .999, grid_res)
 grid = np.meshgrid(x, y)
 flat_grid = t.tensor([g.flatten() for g in grid]).transpose(0,1)
 log_densities = C.log_density(flat_grid).cpu().detach().numpy().reshape((grid_res,grid_res))
-gauss_log_densities = utils.gaussian_copula_log_density(flat_grid, rho=0.8)
-gauss_log_densities = np.array([g.cpu().detach().numpy() for g in gauss_log_densities]).reshape((grid_res,grid_res))
+gauss_log_densities = utils.gaussian_copula_log_density(flat_grid, rho=0.8).cpu().detach().numpy().reshape((grid_res,grid_res))
 
 iX, iY = norm.ppf(grid)
-contours = [-2.8, -2.5, -2.2, -1.9, -1.6]
+contours = [-4.5, -3.4, -2.8, -2.2, -1.6]
 colors_k = ['k'] * len(contours)
 colors_r = ['r'] * len(contours)
 plt.contour(iX, iY, gauss_log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
@@ -111,6 +114,18 @@ plt.title('n: {}, M: {}, n_iters: {}, lambda_l2: {}, \n b_std: {}, a_std: {}, W_
 #plt.scatter(norm.ppf(data.cpu()[:,0]), norm.ppf(data.cpu()[:,1]))
 plt.xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 plt.show()
+
+# #%%
+# from backpack import backpack, extend
+# from backpack.extensions import HMP, DiagHessian
+# from backpack.hessianfree.hvp import hessian_vector_product
+# C = extend(C)
+# eNLL = extend(C.NLL)
+# NLL = eNLL(data)
+# with backpack(DiagHessian(), HMP()):
+#   # keep graph for autodiff HVPs
+#   NLL.backward(retain_graph=True)
+
 
 #%% plot log density
 x = np.linspace(0.01, .99, 30)

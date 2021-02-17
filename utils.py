@@ -28,6 +28,9 @@ def invsigmoid(x, eps=1e-15):
 def sigmoiddot(x):
   return t.sigmoid(x) * (1 - t.sigmoid(x))
 
+def dddsigmoid(x):
+  return sigmoiddot(x) * ((1 - t.sigmoid(x)) ** 2 + t.sigmoid(x) ** 2  - 4 * sigmoiddot(x))
+
 def invsigmoiddot(x):
   return 1 / (x * (1 - x))
 
@@ -48,14 +51,9 @@ def generate_data(d, M, data_type='gaussian', rho=0.5):
 def gaussian_copula_log_density(u, rho):
   rho = t.tensor([rho])
   normal = Normal(loc=0, scale=1, validate_args=None)
-  lc = []
   icdfu = normal.icdf(u)
-  for u_i in icdfu:
-    x1, x2 = u_i
-    exponent = (rho ** 2 * (x1 ** 2 + x2 ** 2) - 2 * rho * x1 * x2) / (2 * (1 - rho ** 2))
-    lc_i = - t.log(t.sqrt(1 - rho ** 2)) - exponent
-    lc += [lc_i]
-  return lc
+  exponent = (rho ** 2 * (icdfu[:,0] ** 2 + icdfu[:,1] ** 2) - 2 * rho * icdfu[:,0] * icdfu[:,1]) / (2 * (1 - rho ** 2))
+  return - t.log(t.sqrt(1 - rho ** 2)) - exponent
 
 def bisect(f, x, lb, ub, n_iter=35):
   # inverts a scalar function f by bisection at x points

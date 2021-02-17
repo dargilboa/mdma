@@ -23,7 +23,7 @@ class CopNet(nn.Module):
     # initialize z using normal samples
     self.update_zs()
 
-  def update_zs(self, data=None):
+  def update_zs(self, data=None, bp_through_z_update=False):
     if data is None:
       # generate data if not provided
       zdata = self.z_update_samples_scale * t.randn(self.z_update_samples, self.d)
@@ -31,8 +31,14 @@ class CopNet(nn.Module):
       # assuming data is samples from the hypercube, transforming with z
       with t.no_grad():
         zdata = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, data.transpose(0, 1))]).transpose(0,1)
-    g = self.g(zdata)
-    self.z, self.zdot = self.z_zdot(zdata, g)
+
+    if bp_through_z_update:
+      g = self.g(zdata)
+      self.z, self.zdot = self.z_zdot(zdata, g)
+    else:
+      with t.no_grad():
+        g = self.g(zdata)
+        self.z, self.zdot = self.z_zdot(zdata, g)
 
   def invert(self, f, r, n_bisect_iter=35):
     # return f^-1(r)
@@ -56,7 +62,7 @@ class CopNet(nn.Module):
 
     M = us.shape[1]
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z[:k], us)])
-    zdu = t.stack([zdot_j(u_j)[0] for zdot_j, u_j in zip(self.zdot[:k], us)])
+    zdu = t.stack([zdot_j(u_j)[0] for zdot_j, u_j in zip(self.zdot[:k], us)]) # check for d > 2
     A = t.einsum('ij,jm->ijm', t.exp(self.W[:,:k]), zu) + self.b[:,:k].unsqueeze(-1).expand(self.n, k, M) # n x k-1 x M
     AA = self.phidot(A) * t.exp(self.W[:,:k]).unsqueeze(-1).expand(self.n, k, M) * zdu.unsqueeze(0).expand(self.n, k, M)
     AAA = t.prod(AA,1) # n x M
@@ -78,6 +84,25 @@ class CopNet(nn.Module):
     AAA = t.prod(AA,1) # n x M
     NLL -= t.mean(t.log(t.einsum('i,im->m', t.exp(self.a), AAA)))
     return NLL
+
+  def diag_H(self, us):
+    # returns M x d tensor of diagonal Hessian elements
+    # us: M x d tensor of conditional values for u_1 ... u_{k-1} at M sampled points
+    us = us.transpose(0,1)
+    M = us.shape[1]
+    eW = t.exp(self.W)
+    zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, us)]) # d x M
+    zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, us)]) # d x M
+    p = t.einsum('ij,jm->ijm', eW, zu) + self.b.unsqueeze(-1).expand(self.n, self.d, M) # n x d x M
+    AA = self.phidot(p) * eW.unsqueeze(-1).expand(self.n, self.d, M) * zdu.unsqueeze(0).expand(self.n, self.d, M) # n x d x M
+    T = utils.dddsigmoid(p) * t.pow(eW, 2).unsqueeze(-1).expand(self.n, self.d, M) * t.pow(zdu, 3).unsqueeze(0).expand(self.n, self.d, M) # n x d x M
+    diag_H = t.zeros(M, self.d)
+    for k in range(self.d):
+      prod = t.prod(t.cat([AA[:, :k, :], AA[:, k+1:, :]], 1), 1) # n x M
+      AAA = t.einsum('i,im,im->im', t.exp(self.a), prod, T[:,k,:])
+      AAA = t.sum(AAA, 0) # M
+      diag_H[:,k] = AAA
+    return diag_H
 
   def log_density(self, u):
     # compute log density
