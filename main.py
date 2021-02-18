@@ -11,24 +11,26 @@ import datetime
 #%% fitting the neural copula to gaussian data
 #rhos = [-.95, -.75, 0, .75, .95]
 rhos = [.8]
-M = 500
+M = 2000
 d = 2
-n = 100
-n_iters = 500
+n = 200
+n_iters = 600
 n_samples_for_figs = 200
 print_every = 20
 update_z_every = 1
-b_std = 0.01
+b_std = 1.0
 W_std = 0.01
 a_std = 0.01
 plot_NLL = True
 np.random.seed(1)
 t.manual_seed(1)
 lambda_l2 = 1e-4
+lambda_H = 1e-3
 beta = 0.5
 ent_samples = 800
 batch_size = 100
 clip_max_norm = 0# .0000001
+bp_through_z_update = False
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.DoubleTensor')
@@ -41,6 +43,8 @@ for nr, rho in enumerate(rhos):
   outs = {}
   data = utils.generate_data(d, M, rho=rho)
   C = models.CopNet(n, d, b_bias=0, b_std=b_std, W_std=W_std, a_std=a_std, z_update_samples=M)
+  with t.no_grad():
+    tr_H_sq_0 = t.mean(C.diag_H(data) ** 2)
   verbose = True
 
   optimizer = optim.Adam(C.parameters(), lr=5e-3)
@@ -55,14 +59,19 @@ for nr, rho in enumerate(rhos):
     optimizer.zero_grad()
     #inds = t.multinomial(t.tensor(range(M), dtype=t.float), num_samples=batch_size, replacement=True)
     NLL = C.NLL(data)
+    obj = NLL
+
+    # regularization
     L2 = (t.norm(C.W) ** 2 + t.norm(C.a) ** 2 + t.norm(C.b) ** 2)
+    obj += lambda_l2 * L2
+
     #samples = C.sample(ent_samples, n_bisect_iter=25)
     # ent = C.NLL(samples)
-    #hessians = sum([t.trace(t.autograd.functional.hessian(C.log_density, d.unsqueeze(0)).squeeze()) for d in data])
-    #print(hessians)
-    obj = NLL + lambda_l2 * L2
-    #obj = obj - beta * ent
-    #obj = obj + beta * hessians
+    # obj = obj - beta * ent
+
+    tr_H_sq = t.mean(C.diag_H(data) ** 2) / tr_H_sq_0
+    obj += lambda_H * tr_H_sq
+
     obj.backward()
     if clip_max_norm > 0:
       t.nn.utils.clip_grad_value_(C.parameters(), clip_max_norm)
@@ -72,11 +81,14 @@ for nr, rho in enumerate(rhos):
 
     # update z approximation, can also take the data as input
     if i % update_z_every == 0:
-      C.update_zs(data)
+      C.update_zs(bp_through_z_update=bp_through_z_update)
 
     NLLs.append(NLL.cpu().detach().numpy())
     if verbose and i % print_every == 0:
       print('iteration {}, NLL: {:.4f}'.format(i,NLL.cpu().detach().numpy()))
+
+    # if i % 100 == 0 and i > 300:
+    #   plot_contours()
 
   if plot_NLL:
     plt.figure()
@@ -93,28 +105,29 @@ for nr, rho in enumerate(rhos):
   all_outs += [outs]
 
 ##%% plot log density contours after applying inverse gaussian CDF
-grid_res = 200
-x = np.linspace(0.001, .999, grid_res)
-y = np.linspace(0.001, .999, grid_res)
-grid = np.meshgrid(x, y)
-flat_grid = t.tensor([g.flatten() for g in grid]).transpose(0,1)
-log_densities = C.log_density(flat_grid).cpu().detach().numpy().reshape((grid_res,grid_res))
-gauss_log_densities = utils.gaussian_copula_log_density(flat_grid, rho=0.8).cpu().detach().numpy().reshape((grid_res,grid_res))
+def plot_contours():
+  grid_res = 200
+  x = np.linspace(0.001, .999, grid_res)
+  y = np.linspace(0.001, .999, grid_res)
+  grid = np.meshgrid(x, y)
+  flat_grid = t.tensor([g.flatten() for g in grid]).transpose(0,1)
+  log_densities = C.log_density(flat_grid).cpu().detach().numpy().reshape((grid_res,grid_res))
+  gauss_log_densities = utils.gaussian_copula_log_density(flat_grid, rho=0.8).cpu().detach().numpy().reshape((grid_res,grid_res))
 
-iX, iY = norm.ppf(grid)
-contours = [-4.5, -3.4, -2.8, -2.2, -1.6]
-colors_k = ['k'] * len(contours)
-colors_r = ['r'] * len(contours)
-plt.contour(iX, iY, gauss_log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
-            colors=colors_k)
-plt.contour(iX, iY, log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
-            colors=colors_r)
-plt.title('n: {}, M: {}, n_iters: {}, lambda_l2: {}, \n b_std: {}, a_std: {}, W_std: {}'
-          .format(n, M, n_iters, lambda_l2, b_std, a_std, W_std))
-#plt.scatter(norm.ppf(data.cpu()[:,0]), norm.ppf(data.cpu()[:,1]))
-plt.xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-plt.show()
-
+  iX, iY = norm.ppf(grid)
+  contours = [-4.5, -3.4, -2.8, -2.2, -1.6]
+  colors_k = ['k'] * len(contours)
+  colors_r = ['r'] * len(contours)
+  plt.contour(iX, iY, gauss_log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
+              colors=colors_k)
+  plt.contour(iX, iY, log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
+              colors=colors_r)
+  plt.title("n: {}, M: {}, n_iters: {}, $\lambda_{{L^2}}$: {}, $\lambda_H$: {}, \n b_std: {}, a_std: {}, W_std: {}, bptz: {}"
+            .format(n, M, n_iters, lambda_l2, lambda_H, b_std, a_std, W_std, bp_through_z_update))
+  #plt.scatter(norm.ppf(data.cpu()[:,0]), norm.ppf(data.cpu()[:,1]))
+  plt.xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ',  final NLL: {:.3f}'.format(NLLs[-1]))
+  plt.show()
+plot_contours()
 # #%%
 # from backpack import backpack, extend
 # from backpack.extensions import HMP, DiagHessian
