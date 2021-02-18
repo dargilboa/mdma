@@ -28,6 +28,9 @@ def invsigmoid(x, eps=1e-15):
 def sigmoiddot(x):
   return t.sigmoid(x) * (1 - t.sigmoid(x))
 
+def ddsigmoid(x):
+  return t.sigmoid(x) * (1 - t.sigmoid(x)) ** 2 - t.sigmoid(x) ** 2 * (1 - t.sigmoid(x))
+
 def dddsigmoid(x):
   return sigmoiddot(x) * ((1 - t.sigmoid(x)) ** 2 + t.sigmoid(x) ** 2  - 4 * sigmoiddot(x))
 

@@ -14,22 +14,22 @@ rhos = [.8]
 M = 2000
 d = 2
 n = 200
-n_iters = 600
+n_iters = 300
 n_samples_for_figs = 200
 print_every = 20
 update_z_every = 1
-b_std = 1.0
+b_std = 0.01
 W_std = 0.01
 a_std = 0.01
 plot_NLL = True
 np.random.seed(1)
 t.manual_seed(1)
 lambda_l2 = 1e-4
-lambda_H = 1e-3
+lambda_H = 5e-7
 beta = 0.5
 ent_samples = 800
 batch_size = 100
-clip_max_norm = 0# .0000001
+clip_max_norm = 0
 bp_through_z_update = False
 
 if t.cuda.is_available():
@@ -45,6 +45,7 @@ for nr, rho in enumerate(rhos):
   C = models.CopNet(n, d, b_bias=0, b_std=b_std, W_std=W_std, a_std=a_std, z_update_samples=M)
   with t.no_grad():
     tr_H_sq_0 = t.mean(C.diag_H(data) ** 2)
+    H_norm_sq_0 = C.H(data).norm() ** 2
   verbose = True
 
   optimizer = optim.Adam(C.parameters(), lr=5e-3)
@@ -69,8 +70,14 @@ for nr, rho in enumerate(rhos):
     # ent = C.NLL(samples)
     # obj = obj - beta * ent
 
-    tr_H_sq = t.mean(C.diag_H(data) ** 2) / tr_H_sq_0
-    obj += lambda_H * tr_H_sq
+    # diag Hessian
+    # tr_H_sq = t.mean(C.diag_H(data) ** 2) / tr_H_sq_0
+    # obj += lambda_H * tr_H_sq
+
+    # full Hessian
+    H_norm_sq = C.H(data).norm() ** 2 / H_norm_sq_0
+    #print(H_norm_sq)
+    obj += lambda_H * H_norm_sq
 
     obj.backward()
     if clip_max_norm > 0:

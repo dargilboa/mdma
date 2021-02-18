@@ -104,6 +104,26 @@ class CopNet(nn.Module):
       diag_H[:,k] = AAA
     return diag_H
 
+  def H(self, us):
+    # returns M x d x d tensor of Hessians at every datapoint
+    # us: M x d tensor of conditional values for u_1 ... u_{k-1} at M sampled points
+    us = us.transpose(0,1)
+    M = us.shape[1]
+    eW = t.exp(self.W)
+    zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, us)]) # d x M
+    zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, us)]) # d x M
+    p = t.einsum('ij,jm->ijm', eW, zu) + self.b.unsqueeze(-1).expand(self.n, self.d, M) # n x d x M
+    AA = self.phidot(p) * eW.unsqueeze(-1).expand(self.n, self.d, M) * zdu.unsqueeze(0).expand(self.n, self.d, M) # n x d x M
+    T = utils.ddsigmoid(p) * t.pow(eW, 2).unsqueeze(-1).expand(self.n, self.d, M) * t.pow(zdu, 2).unsqueeze(0).expand(self.n, self.d, M) # n x d x M
+    H = t.zeros(M, self.d, self.d)
+    for k in range(self.d):
+      for l in range(k+1):
+        prod = t.prod(t.cat([AA[:, :l, :], AA[:, l+1:k, :], AA[:, k+1:, :]], 1), 1) # n x M
+        AAA = t.einsum('i,im,im,im->im', t.exp(self.a), prod, T[:,k,:], T[:,l,:])
+        AAA = t.sum(AAA, 0) # M
+        H[:, k, l] = H[:, l, k] = AAA
+    return H
+
   def log_density(self, u):
     # compute log density
     # u: M x d tensor
