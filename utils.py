@@ -3,7 +3,7 @@ import numpy as np
 from scipy.stats import norm
 from torch.distributions.normal import Normal
 
-class d_interpolator():
+class d_interpolator():   # old, replaced with xitorch interpolation
   # interpolate first derivative
   def __init__(self, x, y):
     # we assume the function is monotonic
@@ -42,14 +42,20 @@ def generate_data(d, M, data_type='gaussian', rho=0.5):
   if data_type == 'uniform':
     return t.Tensor(np.random.rand(M, d)).double()
   elif data_type == 'gaussian':
-    # only works for d=2 for now
-    P = np.array([[1, rho],
-                  [rho, 1]])
+    if d == 2:
+      P = np.array([[1, rho],
+                    [rho, 1]])
+    else:
+      # random correlation matrix
+      S = np.random.randn(d, d)
+      P = np.dot(S, S.transpose())
+      P = P / np.sqrt(np.diag(P))[:,None] / np.sqrt(np.diag(P))[None, :]
+
     A = np.linalg.cholesky(P)
     Z = np.random.randn(d, M)
     Z = np.dot(A, Z)
     U = norm.cdf(Z)
-    return t.Tensor(U.transpose()).double()
+    return t.Tensor(U.transpose()).double(), P
 
 def gaussian_copula_log_density(u, rho):
   rho = t.tensor([rho])

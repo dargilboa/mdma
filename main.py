@@ -5,37 +5,81 @@ import numpy as np
 import matplotlib.pyplot as plt
 import utils
 import models
-from scipy.stats import norm
-import datetime
+import plots
+import fit
 
-#%% fitting the neural copula to gaussian data
+if t.cuda.is_available():
+  t.set_default_tensor_type('torch.cuda.DoubleTensor')
+else:
+  t.set_default_tensor_type('torch.DoubleTensor')
+
+#%% fit copula
+d = 3
+h = {
+  'M': 2000,
+  'd': d,
+  'rho': .8,
+  'n_iters': 800,
+  'lambda_l2': 5e-4,
+  }
+
+data, P = utils.generate_data(h['d'], h['M'], rho=h['rho'])
+outs = fit.fit_neural_copula(data, h)
+
+plt.figure()
+plt.plot(outs['NLLs'])
+plt.xlabel('iter')
+plt.ylabel('NLL per datapoint')
+plt.show()
+
+##%% plot pairwise densities
+fig, axs = plt.subplots(d - 1, d - 1, figsize=(d * 3, d * 3))
+for i in range(d - 1):
+  for j in range(i, d - 1):
+    plots.plot_contours_single(outs, axs[i, j], rho=P[i, j+1], i=i, j=j+1)
+axs[0,0].set_ylabel('u_1')
+axs[1,0].set_ylabel('u_2')
+axs[0,0].set_title('u_2')
+axs[0,1].set_title('u_3')
+fig.show()
+
+#%% fitting the neural copula to gaussian data (old)
 #rhos = [-.95, -.75, 0, .75, .95]
 rhos = [.8]
 M = 2000
 d = 2
 n = 200
-n_iters = 300
+n_iters = 600
 n_samples_for_figs = 200
 print_every = 20
 update_z_every = 1
 b_std = 0.01
 W_std = 0.01
 a_std = 0.01
-plot_NLL = True
 np.random.seed(1)
 t.manual_seed(1)
-lambda_l2 = 1e-4
-lambda_H = 5e-7
+lambda_l2 = 0#1e-6
+lambda_H = 1e-6
 beta = 0.5
 ent_samples = 800
 batch_size = 100
 clip_max_norm = 0
 bp_through_z_update = False
+plot_NLL = True
+plot_conts = True
+plot_cont_every = 100
+plot_cont_from = 300
+verbose = True
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.DoubleTensor')
 else:
   t.set_default_tensor_type('torch.DoubleTensor')
+
+if plot_conts:
+  num_plots = int((n_iters - plot_cont_from) / plot_cont_every) + 2
+  fig, axs = plt.subplots(1, num_plots, figsize=(num_plots * 3, 3))
+  curr_plot_ind = 0
 
 all_outs = []
 for nr, rho in enumerate(rhos):
@@ -43,13 +87,12 @@ for nr, rho in enumerate(rhos):
   outs = {}
   data = utils.generate_data(d, M, rho=rho)
   C = models.CopNet(n, d, b_bias=0, b_std=b_std, W_std=W_std, a_std=a_std, z_update_samples=M)
+  outs['model'] = C
   with t.no_grad():
     tr_H_sq_0 = t.mean(C.diag_H(data) ** 2)
     H_norm_sq_0 = C.H(data).norm() ** 2
-  verbose = True
 
   optimizer = optim.Adam(C.parameters(), lr=5e-3)
-  #optimizer = optim.SGD(C.parameters(), lr=0.5, momentum=0.9)
   scheduler = t.optim.lr_scheduler.StepLR(optimizer, step_size=int(3*n_iters/4), gamma=0.1)
 
   t.autograd.set_detect_anomaly(True)
@@ -71,13 +114,13 @@ for nr, rho in enumerate(rhos):
     # obj = obj - beta * ent
 
     # diag Hessian
-    # tr_H_sq = t.mean(C.diag_H(data) ** 2) / tr_H_sq_0
-    # obj += lambda_H * tr_H_sq
+    tr_H_sq = t.mean(C.diag_H(data) ** 2) / tr_H_sq_0
+    obj += lambda_H * tr_H_sq
 
-    # full Hessian
-    H_norm_sq = C.H(data).norm() ** 2 / H_norm_sq_0
-    #print(H_norm_sq)
-    obj += lambda_H * H_norm_sq
+    # # full Hessian
+    # H_norm_sq = C.H(data).norm() ** 2 / H_norm_sq_0
+    # #print(H_norm_sq)
+    # obj += lambda_H * H_norm_sq
 
     obj.backward()
     if clip_max_norm > 0:
@@ -94,8 +137,18 @@ for nr, rho in enumerate(rhos):
     if verbose and i % print_every == 0:
       print('iteration {}, NLL: {:.4f}'.format(i,NLL.cpu().detach().numpy()))
 
-    # if i % 100 == 0 and i > 300:
-    #   plot_contours()
+    # plot contours during fitting
+    if plot_conts and (i + 1) % plot_cont_every == 0 and i > plot_cont_from - 2:
+      plots.plot_contours_single(outs, axs[curr_plot_ind + 1], i)
+      curr_plot_ind += 1
+
+    if i > 300 and NLL > 0:
+      print('fitting unstable, terminating')
+      break
+
+  if plot_conts:
+    axs[0].plot(NLLs)
+    fig.show()
 
   if plot_NLL:
     plt.figure()
@@ -105,47 +158,22 @@ for nr, rho in enumerate(rhos):
     plt.show()
 
   outs['NLLs'] = NLLs
-  outs['model'] = C
   outs['data'] = data
+  outs['lambda_H'] = lambda_H
   outs['rho'] = rho
   outs['lambda_l2'] = lambda_l2
+  outs['n_iters'] = n_iters
+  outs['b_std'] = b_std
+  outs['a_std'] = a_std
+  outs['W_std'] = W_std
+  outs['bp_through_z_update'] = bp_through_z_update
+  outs['M'] = M
+  outs['n'] = n
+  outs['final_NLL'] = NLLs[-1]
   all_outs += [outs]
 
 ##%% plot log density contours after applying inverse gaussian CDF
-def plot_contours():
-  grid_res = 200
-  x = np.linspace(0.001, .999, grid_res)
-  y = np.linspace(0.001, .999, grid_res)
-  grid = np.meshgrid(x, y)
-  flat_grid = t.tensor([g.flatten() for g in grid]).transpose(0,1)
-  log_densities = C.log_density(flat_grid).cpu().detach().numpy().reshape((grid_res,grid_res))
-  gauss_log_densities = utils.gaussian_copula_log_density(flat_grid, rho=0.8).cpu().detach().numpy().reshape((grid_res,grid_res))
-
-  iX, iY = norm.ppf(grid)
-  contours = [-4.5, -3.4, -2.8, -2.2, -1.6]
-  colors_k = ['k'] * len(contours)
-  colors_r = ['r'] * len(contours)
-  plt.contour(iX, iY, gauss_log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
-              colors=colors_k)
-  plt.contour(iX, iY, log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
-              colors=colors_r)
-  plt.title("n: {}, M: {}, n_iters: {}, $\lambda_{{L^2}}$: {}, $\lambda_H$: {}, \n b_std: {}, a_std: {}, W_std: {}, bptz: {}"
-            .format(n, M, n_iters, lambda_l2, lambda_H, b_std, a_std, W_std, bp_through_z_update))
-  #plt.scatter(norm.ppf(data.cpu()[:,0]), norm.ppf(data.cpu()[:,1]))
-  plt.xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ',  final NLL: {:.3f}'.format(NLLs[-1]))
-  plt.show()
-plot_contours()
-# #%%
-# from backpack import backpack, extend
-# from backpack.extensions import HMP, DiagHessian
-# from backpack.hessianfree.hvp import hessian_vector_product
-# C = extend(C)
-# eNLL = extend(C.NLL)
-# NLL = eNLL(data)
-# with backpack(DiagHessian(), HMP()):
-#   # keep graph for autodiff HVPs
-#  NLL.backward(retain_graph=True)
-
+plots.plot_contours(outs)
 
 #%% plot log density
 x = np.linspace(0.01, .99, 30)

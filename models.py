@@ -124,12 +124,40 @@ class CopNet(nn.Module):
         H[:, k, l] = H[:, l, k] = AAA
     return H
 
-  def log_density(self, u):
+  def log_density(self, u, bivariate=False, bv_i=0, bv_j=1):
     # compute log density
-    # u: M x d tensor
+    # u: M x n_var tensor (n_var=d in the full case and 2 in the bivariate case)
     M = u.shape[0]
-    zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, u.transpose(0,1))])
-    zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, u.transpose(0, 1))])
+    if bivariate:
+      n_vars = 2
+      z = [self.z[bv_i], self.z[bv_j]]
+      zdot = [self.zdot[bv_i], self.zdot[bv_j]]
+      eW = t.exp(self.W[:,[bv_i, bv_j]])
+      b = self.b[:,[bv_i, bv_j]]
+    else:
+      n_vars = self.d
+      z = self.z
+      zdot = self.zdot
+      eW = t.exp(self.W)
+      b = self.b
+    assert u.shape[1] == n_vars
+
+    zu = t.stack([z_j(u_j) for z_j, u_j in zip(z, u.transpose(0,1))])
+    zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(zdot, u.transpose(0, 1))])
+    A = t.einsum('ij,jm->ijm', eW, zu) + b.unsqueeze(-1).expand(self.n, n_vars, M)
+    AA = self.phidot(A) * eW.unsqueeze(-1).expand(self.n, n_vars, M) * zdu.unsqueeze(0).expand(self.n, n_vars, M)
+    AAA = t.prod(AA,1) # n x M
+    log_density = t.log(t.einsum('i,im->m', t.exp(self.a), AAA)) - t.log(t.sum(t.exp(self.a))).unsqueeze(-1).expand(M)
+    return log_density
+
+  def log_biv_marginal_density(self, u, i, j):
+    # compute log of bivariate marginal density of i and j variables for d > 2
+    # u: M x 2 tensor
+    M = u.shape[0]
+    z_ij = [self.z[i], self.z[j]]
+    zdot_ij = [self.zdot[i], self.zdot[j]]
+    zu = t.stack([z_j(u_j) for z_j, u_j in zip(z_ij, u.transpose(0,1))])
+    zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(zdot_ij, u.transpose(0, 1))])
     A = t.einsum('ij,jm->ijm', t.exp(self.W), zu) + self.b.unsqueeze(-1).expand(self.n, self.d, M)
     AA = self.phidot(A) * t.exp(self.W).unsqueeze(-1).expand(self.n, self.d, M) * zdu.unsqueeze(0).expand(self.n, self.d, M)
     AAA = t.prod(AA,1) # n x M
