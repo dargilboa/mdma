@@ -14,16 +14,19 @@ else:
   t.set_default_tensor_type('torch.DoubleTensor')
 
 #%% fit copula
-d = 3
+d = 5
 h = {
   'M': 2000,
   'd': d,
-  'rho': .8,
-  'n_iters': 800,
-  'lambda_l2': 5e-4,
+  'n_iters': 600,
+  'n': 100,
+  'lambda_l2': 1e-5,
+  'lambda_H_full': 1e-5,
   }
 
-data, P = utils.generate_data(h['d'], h['M'], rho=h['rho'])
+np.random.seed(1)
+t.manual_seed(1)
+data, P = utils.generate_data(h['d'], h['M'])
 outs = fit.fit_neural_copula(data, h)
 
 plt.figure()
@@ -32,16 +35,7 @@ plt.xlabel('iter')
 plt.ylabel('NLL per datapoint')
 plt.show()
 
-##%% plot pairwise densities
-fig, axs = plt.subplots(d - 1, d - 1, figsize=(d * 3, d * 3))
-for i in range(d - 1):
-  for j in range(i, d - 1):
-    plots.plot_contours_single(outs, axs[i, j], rho=P[i, j+1], i=i, j=j+1)
-axs[0,0].set_ylabel('u_1')
-axs[1,0].set_ylabel('u_2')
-axs[0,0].set_title('u_2')
-axs[0,1].set_title('u_3')
-fig.show()
+plots.plot_contours_ext(outs, P)
 
 #%% fitting the neural copula to gaussian data (old)
 #rhos = [-.95, -.75, 0, .75, .95]
@@ -56,8 +50,6 @@ update_z_every = 1
 b_std = 0.01
 W_std = 0.01
 a_std = 0.01
-np.random.seed(1)
-t.manual_seed(1)
 lambda_l2 = 0#1e-6
 lambda_H = 1e-6
 beta = 0.5

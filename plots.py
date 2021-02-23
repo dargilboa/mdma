@@ -30,9 +30,7 @@ def plot_contours(outs):
   plt.xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ',  final NLL: {:.3f}'.format(outs['final_NLL']))
   plt.show()
 
-def plot_contours_single(outs, axs, rho, title=None, eps=1e-3, grid_res=200, i=0, j=1):
-  C = outs['model']
-  # d = outs['d']
+def plot_contours_single(C, axs, rho, title=None, eps=1e-3, grid_res=200, i=0, j=1):
   # grid_points = (1 - eps) * np.ones(d, grid_res)
   # grid_points[i] = np.linspace(eps, 1 - eps, grid_res)
   # grid_points[j] = np.linspace(eps, 1 - eps, grid_res)
@@ -55,3 +53,27 @@ def plot_contours_single(outs, axs, rho, title=None, eps=1e-3, grid_res=200, i=0
               colors=colors_r)
   if title is not None:
     axs.title.set_text(title)
+
+def plot_contours_ext(outs, P, final_only=False):
+  d = outs['h']['d']
+  if final_only:
+    models = [[len(outs['NLLs'])-1, outs['model']]]
+  else:
+    models = zip(outs['checkpoint_iters'], outs['checkpoints'])
+
+  for iter, model in models:
+    fig, axs = plt.subplots(d - 1, d - 1, figsize=(d * 3, d * 3))
+    for i in range(d - 1):
+      for j in range(i, d - 1):
+        plot_contours_single(model, axs[i, j], rho=P[i, j + 1], i=i, j=j + 1)
+    axs[0, 0].set_ylabel('u_1')
+    axs[1, 0].set_ylabel('u_2')
+    axs[0, 0].set_title('u_2')
+    axs[0, 1].set_title('u_3')
+    axs[d - 2, 0].plot(outs['NLLs'], alpha=0.3)
+    axs[d - 2, 0].scatter(iter, outs['NLLs'][iter], color='red', alpha=0.3)
+    axs[d - 2, 0].text(0, min(outs['NLLs']), '\n'.join([key + ' : ' + str(value) for key, value in outs['h'].items()]))
+    NLL_val = outs['NLLs'][iter]
+    axs[1, 0].set_xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+               + ',  NLL: {:.3f}, iter: {}'.format(NLL_val, iter))
+    fig.show()

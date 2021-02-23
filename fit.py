@@ -1,8 +1,9 @@
 import torch as t
 import torch.optim as optim
 import models
+import copy
 
-def fit_neural_copula(data, h, verbose=True, print_every=20):
+def fit_neural_copula(data, h, verbose=True, print_every=20, checkpoint_every=100):
   # h: dictionary of hyperparameters
   # default hyperparameters
   default_h = {
@@ -43,6 +44,8 @@ def fit_neural_copula(data, h, verbose=True, print_every=20):
 
   # fit neural copula to data
   NLLs = []
+  checkpoints = []
+  checkpoint_iters = []
   for i in range(h['n_iters']):
     # update parameters
     optimizer.zero_grad()
@@ -82,6 +85,9 @@ def fit_neural_copula(data, h, verbose=True, print_every=20):
     if verbose and i % print_every == 0:
       print('iteration {}, NLL: {:.4f}'.format(i,NLL.cpu().detach().numpy()))
 
+    if (i + 1) % checkpoint_every == 0:
+      checkpoints.append(copy.deepcopy(C))
+      checkpoint_iters.append(i)
     # # plot contours during fitting
     # if plot_conts and (i + 1) % plot_cont_every == 0 and i > plot_cont_from - 2:
     #   plots.plot_contours_single(outs, axs[curr_plot_ind + 1], i)
@@ -91,6 +97,7 @@ def fit_neural_copula(data, h, verbose=True, print_every=20):
       print('fitting unstable, terminating')
       break
 
-  outs = {'NLLs': NLLs, 'model': C, 'h': h, 'data': data}
+  outs = {'NLLs': NLLs, 'model': C, 'h': h, 'data': data, 'checkpoints': checkpoints,
+          'checkpoint_iters': checkpoint_iters}
 
   return outs

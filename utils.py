@@ -37,7 +37,7 @@ def dddsigmoid(x):
 def invsigmoiddot(x):
   return 1 / (x * (1 - x))
 
-def generate_data(d, M, data_type='gaussian', rho=0.5):
+def generate_data(d, M, data_type='gaussian', rho=0.8):
   # returns an M x d matrix of samples from a copula
   if data_type == 'uniform':
     return t.Tensor(np.random.rand(M, d)).double()
