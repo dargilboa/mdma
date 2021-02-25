@@ -19,7 +19,7 @@ h = {
   'M': 2000,
   'M_val': 500,
   'd': d,
-  'n_iters': 100,
+  'n_iters': 600,
   'n': 100,
   'lambda_l2': 1e-5,
   'lambda_H_diag': 1e-5,
