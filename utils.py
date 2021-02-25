@@ -37,10 +37,14 @@ def dddsigmoid(x):
 def invsigmoiddot(x):
   return 1 / (x * (1 - x))
 
-def generate_data(d, M, data_type='gaussian', rho=0.8):
-  # returns an M x d matrix of samples from a copula
+def generate_data(d, M, M_val, data_type='gaussian', rho=0.8):
+  # returns [train_data, val_data], P
+  # train_data : M x d
+  # val_data : M_val x d
+  # P : d x d correlation matrix
+
   if data_type == 'uniform':
-    return t.Tensor(np.random.rand(M, d)).double()
+    return t.Tensor(np.random.rand(M, d))
   elif data_type == 'gaussian':
     if d == 2:
       P = np.array([[1, rho],
@@ -52,10 +56,10 @@ def generate_data(d, M, data_type='gaussian', rho=0.8):
       P = P / np.sqrt(np.diag(P))[:,None] / np.sqrt(np.diag(P))[None, :]
 
     A = np.linalg.cholesky(P)
-    Z = np.random.randn(d, M)
+    Z = np.random.randn(d, M + M_val)
     Z = np.dot(A, Z)
-    U = norm.cdf(Z)
-    return t.Tensor(U.transpose()).double(), P
+    U = norm.cdf(Z).transpose()
+    return [t.Tensor(U[:M]), t.Tensor(U[M:])], P
 
 def gaussian_copula_log_density(u, rho):
   rho = t.tensor([rho])

@@ -17,16 +17,19 @@ else:
 d = 5
 h = {
   'M': 2000,
+  'M_val': 500,
   'd': d,
-  'n_iters': 600,
+  'n_iters': 100,
   'n': 100,
   'lambda_l2': 1e-5,
-  'lambda_H_full': 1e-5,
+  'lambda_H_diag': 1e-5,
+  'opt': 'sgd',
+  'lr': 1,
   }
 
 np.random.seed(1)
 t.manual_seed(1)
-data, P = utils.generate_data(h['d'], h['M'])
+data, P = utils.generate_data(h['d'], h['M'], h['M_val'])
 outs = fit.fit_neural_copula(data, h)
 
 plt.figure()

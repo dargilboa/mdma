@@ -70,10 +70,18 @@ def plot_contours_ext(outs, P, final_only=False):
     axs[1, 0].set_ylabel('u_2')
     axs[0, 0].set_title('u_2')
     axs[0, 1].set_title('u_3')
-    axs[d - 2, 0].plot(outs['NLLs'], alpha=0.3)
-    axs[d - 2, 0].scatter(iter, outs['NLLs'][iter], color='red', alpha=0.3)
-    axs[d - 2, 0].text(0, min(outs['NLLs']), '\n'.join([key + ' : ' + str(value) for key, value in outs['h'].items()]))
+    if d > 3:
+      ind_nll_plot = 1
+      alpha = 1
+    else:
+      ind_nll_plot = 0
+      alpha = 0.5
+    axs[-1, ind_nll_plot].plot(outs['NLLs'], alpha=alpha, label='train')
+    axs[-1, ind_nll_plot].plot(outs['val_NLLs'], alpha=alpha, label='val')
+    axs[-1, ind_nll_plot].legend()
+    axs[-1, ind_nll_plot].scatter(iter, outs['NLLs'][iter], color='red', alpha=alpha)
+    axs[-1, 0].text(0, min(outs['NLLs']), '\n'.join([key + ' : ' + str(value) for key, value in outs['h'].items()]))
     NLL_val = outs['NLLs'][iter]
-    axs[1, 0].set_xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    axs[-1, 0].set_xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                + ',  NLL: {:.3f}, iter: {}'.format(NLL_val, iter))
     fig.show()
