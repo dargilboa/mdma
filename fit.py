@@ -8,6 +8,7 @@ def fit_neural_copula(data, h, verbose=True, print_every=20, checkpoint_every=10
   # default hyperparameters
   default_h = {
               'n': 200,
+              'M_val': 500,
               'n_iters': 600,
               'update_z_every': 1,
               'b_std': 0.01,
@@ -17,7 +18,6 @@ def fit_neural_copula(data, h, verbose=True, print_every=20, checkpoint_every=10
               'lambda_H_full': 0,
               'lambda_H_diag': 0,
               'lambda_ent': 0,
-              'batch_size': 100,
               'clip_max_norm': 0,
               'decrease_lr_time': 1,
               'decrease_lr_factor': 0.1,
@@ -56,11 +56,11 @@ def fit_neural_copula(data, h, verbose=True, print_every=20, checkpoint_every=10
   val_NLLs = []
   checkpoints = []
   checkpoint_iters = []
+  best_val_NLL = t.tensor(float("Inf"))
   print(h)
   for i in range(h['n_iters']):
     # update parameters
     optimizer.zero_grad()
-    #inds = t.multinomial(t.tensor(range(M), dtype=t.float), num_samples=batch_size, replacement=True)
     NLL = C.NLL(train_data)
     val_NLL = C.NLL(val_data)
     obj = NLL
@@ -83,6 +83,7 @@ def fit_neural_copula(data, h, verbose=True, print_every=20, checkpoint_every=10
       obj += h['lambda_H_full'] * H_norm_sq
 
     obj.backward()
+
     if h['clip_max_norm'] > 0:
       t.nn.utils.clip_grad_value_(C.parameters(), h['clip_max_norm'])
 
@@ -95,26 +96,26 @@ def fit_neural_copula(data, h, verbose=True, print_every=20, checkpoint_every=10
 
     NLLs.append(NLL.cpu().detach().numpy())
     val_NLLs.append(val_NLL.cpu().detach().numpy())
+    if val_NLL < best_val_NLL:
+      best_val_NLL = val_NLL.detach().clone()
+      best_val_NLL_model = copy.deepcopy(C)
 
     if verbose and i % print_every == 0:
-      print('iteration {}, train NLL: {:.4f}, val NLL: {:.4f}'.format(i,
-                                                                      NLL.cpu().detach().numpy(),
-                                                                      val_NLL.cpu().detach().numpy(),
-                                                                      ))
+      print('iteration {}, train NLL: {:.4f}, val NLL: {:.4f}'
+            .format(i,
+                    NLL.cpu().detach().numpy(),
+                    val_NLL.cpu().detach().numpy(),
+                    ))
 
     if (i + 1) % checkpoint_every == 0:
       checkpoints.append(copy.deepcopy(C))
       checkpoint_iters.append(i)
-    # # plot contours during fitting
-    # if plot_conts and (i + 1) % plot_cont_every == 0 and i > plot_cont_from - 2:
-    #   plots.plot_contours_single(outs, axs[curr_plot_ind + 1], i)
-    #   curr_plot_ind += 1
 
     if i > 300 and NLL > 0:
       print('fitting unstable, terminating')
       break
 
   outs = {'NLLs': NLLs, 'val_NLLs': val_NLLs, 'model': C, 'h': h, 'data': data, 'checkpoints': checkpoints,
-          'checkpoint_iters': checkpoint_iters}
+          'checkpoint_iters': checkpoint_iters, 'best_val_NLL_model': best_val_NLL_model}
 
   return outs

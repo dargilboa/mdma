@@ -79,8 +79,9 @@ def plot_contours_ext(outs, P, final_only=False):
     axs[-1, ind_nll_plot].plot(outs['NLLs'], alpha=alpha, label='train')
     axs[-1, ind_nll_plot].plot(outs['val_NLLs'], alpha=alpha, label='val')
     axs[-1, ind_nll_plot].legend()
+    axs[-1, ind_nll_plot].grid()
     axs[-1, ind_nll_plot].scatter(iter, outs['NLLs'][iter], color='red', alpha=alpha)
-    axs[-1, 0].text(0, min(outs['NLLs']), '\n'.join([key + ' : ' + str(value) for key, value in outs['h'].items()]))
+    axs[-1, 0].text(0, 0, '\n'.join([key + ' : ' + str(value) for key, value in outs['h'].items()]))
     NLL_val = outs['NLLs'][iter]
     axs[-1, 0].set_xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                + ',  NLL: {:.3f}, iter: {}'.format(NLL_val, iter))

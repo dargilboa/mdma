@@ -37,7 +37,7 @@ def dddsigmoid(x):
 def invsigmoiddot(x):
   return 1 / (x * (1 - x))
 
-def generate_data(d, M, M_val, data_type='gaussian', rho=0.8):
+def generate_data(d, M, M_val, P, data_type='gaussian'):
   # returns [train_data, val_data], P
   # train_data : M x d
   # val_data : M_val x d
@@ -46,20 +46,11 @@ def generate_data(d, M, M_val, data_type='gaussian', rho=0.8):
   if data_type == 'uniform':
     return t.Tensor(np.random.rand(M, d))
   elif data_type == 'gaussian':
-    if d == 2:
-      P = np.array([[1, rho],
-                    [rho, 1]])
-    else:
-      # random correlation matrix
-      S = np.random.randn(d, d)
-      P = np.dot(S, S.transpose())
-      P = P / np.sqrt(np.diag(P))[:,None] / np.sqrt(np.diag(P))[None, :]
-
     A = np.linalg.cholesky(P)
     Z = np.random.randn(d, M + M_val)
     Z = np.dot(A, Z)
     U = norm.cdf(Z).transpose()
-    return [t.Tensor(U[:M]), t.Tensor(U[M:])], P
+    return [t.Tensor(U[:M]), t.Tensor(U[M:])]
 
 def gaussian_copula_log_density(u, rho):
   rho = t.tensor([rho])
@@ -67,6 +58,30 @@ def gaussian_copula_log_density(u, rho):
   icdfu = normal.icdf(u)
   exponent = (rho ** 2 * (icdfu[:,0] ** 2 + icdfu[:,1] ** 2) - 2 * rho * icdfu[:,0] * icdfu[:,1]) / (2 * (1 - rho ** 2))
   return - t.log(t.sqrt(1 - rho ** 2)) - exponent
+
+def gaussian_copula_density(us, P):
+  # us : M x d tensor of points to sample
+  d = us.shape[1]
+  P = t.tensor(P)
+  normal = Normal(loc=0, scale=1, validate_args=None)
+  ius = normal.icdf(us)
+  exponent = t.exp(-(1/2) * t.sum(ius @ (t.inverse(P) - t.eye(d)) * ius, dim=1))
+  return exponent * 1 / t.sqrt(t.det(P))
+
+def density_w_gauss_marginals(us, copula_density):
+  # us : M x d tensor of points on the hypercube
+  # copula_density : the copula density at us
+  # returns the density assuming gaussian marginals
+  normal = Normal(loc=0, scale=1, validate_args=None)
+  ius = normal.icdf(us)
+  return copula_density * t.exp(t.sum(normal.log_prob(ius), dim=1))
+
+def gauss_marginals(us):
+  # us : M x d tensor of points on the hypercube
+  # returns product of gaussian densities
+  normal = Normal(loc=0, scale=1, validate_args=None)
+  ius = normal.icdf(us)
+  return t.exp(t.sum(normal.log_prob(ius), dim=1))
 
 def bisect(f, x, lb, ub, n_iter=35):
   # inverts a scalar function f by bisection at x points
@@ -81,3 +96,12 @@ def bisect(f, x, lb, ub, n_iter=35):
     x_temp = (xl + xh) / 2
 
   return x_temp
+
+def correlation_matrix(d, rho):
+  return np.eye(d) * (1 - rho) + np.ones((d,d)) * rho
+
+def random_correlation_matrix(d):
+  S = np.random.randn(d, d)
+  P = np.dot(S, S.transpose())
+  P = P / np.sqrt(np.diag(P))[:, None] / np.sqrt(np.diag(P))[None, :]
+  return P
