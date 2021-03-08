@@ -78,9 +78,9 @@ class CopNet(nn.Module):
     M = u.shape[0]
     NLL = t.log(t.sum(t.exp(self.a)))
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, u.transpose(0,1))])
-    zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, u.transpose(0, 1))])
+    zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, u.transpose(0, 1))]) # d x M
     A = t.einsum('ij,jm->ijm', t.exp(self.W), zu) + self.b.unsqueeze(-1).expand(self.n, self.d, M)
-    AA = self.phidot(A) * t.exp(self.W).unsqueeze(-1).expand(self.n, self.d, M) * zdu.unsqueeze(0).expand(self.n, self.d, M)
+    AA = self.phidot(A) * t.exp(self.W).unsqueeze(-1).expand(self.n, self.d, M) * zdu
     AAA = t.prod(AA,1) # n x M
     NLL -= t.mean(t.log(t.einsum('i,im->m', t.exp(self.a), AAA)))
     return NLL
