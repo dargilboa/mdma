@@ -2,6 +2,7 @@ import torch as t
 import numpy as np
 from scipy.stats import norm
 from torch.distributions.normal import Normal
+from copulae import GumbelCopula
 
 class d_interpolator():   # old, replaced with xitorch interpolation
   # interpolate first derivative
@@ -37,19 +38,24 @@ def dddsigmoid(x):
 def invsigmoiddot(x):
   return 1 / (x * (1 - x))
 
-def generate_data(d, M, M_val, P, data_type='gaussian'):
-  # returns [train_data, val_data], P
+def generate_data(d, M, M_val, copula_params, copula_type='gaussian'):
+  # copula_params is either a d x d correlation matrix for the gaussian case or a theta parameter
+  # for the gumbel case
+  # returns [train_data, val_data]
   # train_data : M x d
   # val_data : M_val x d
-  # P : d x d correlation matrix
 
-  if data_type == 'uniform':
-    return t.Tensor(np.random.rand(M, d))
-  elif data_type == 'gaussian':
+  if copula_type == 'gaussian':
+    P = copula_params
     A = np.linalg.cholesky(P)
     Z = np.random.randn(d, M + M_val)
     Z = np.dot(A, Z)
     U = norm.cdf(Z).transpose()
+    return [t.Tensor(U[:M]), t.Tensor(U[M:])]
+  elif copula_type == 'gumbel':
+    theta = copula_params
+    gumbel_copula = GumbelCopula(theta=theta, dim=d)
+    U = gumbel_copula.random(M + M_val)
     return [t.Tensor(U[:M]), t.Tensor(U[M:])]
 
 def gaussian_copula_log_density(u, rho):
@@ -59,14 +65,23 @@ def gaussian_copula_log_density(u, rho):
   exponent = (rho ** 2 * (icdfu[:,0] ** 2 + icdfu[:,1] ** 2) - 2 * rho * icdfu[:,0] * icdfu[:,1]) / (2 * (1 - rho ** 2))
   return - t.log(t.sqrt(1 - rho ** 2)) - exponent
 
-def gaussian_copula_density(us, P):
+def copula_log_density(u, copula_params, copula_type='gaussian'):
+  return t.log(copula_density(u, copula_params, copula_type=copula_type))
+
+def copula_density(us, copula_params, copula_type='gaussian'):
   # us : M x d tensor of points to sample
   d = us.shape[1]
-  P = t.tensor(P)
-  normal = Normal(loc=0, scale=1, validate_args=None)
-  ius = normal.icdf(us)
-  exponent = t.exp(-(1/2) * t.sum(ius @ (t.inverse(P) - t.eye(d)) * ius, dim=1))
-  return exponent * 1 / t.sqrt(t.det(P))
+
+  if copula_type == 'gaussian':
+    P = t.tensor(copula_params)
+    normal = Normal(loc=0, scale=1, validate_args=None)
+    ius = normal.icdf(us)
+    exponent = t.exp(-(1/2) * t.sum(ius @ (t.inverse(P) - t.eye(d)) * ius, dim=1))
+    return exponent * 1 / t.sqrt(t.det(P))
+  elif copula_type == 'gumbel':
+    theta = copula_params
+    gumbel_copula = GumbelCopula(theta=theta, dim=d)
+    return t.tensor(gumbel_copula.pdf(us))
 
 def density_w_gauss_marginals(us, copula_density):
   # us : M x d tensor of points on the hypercube

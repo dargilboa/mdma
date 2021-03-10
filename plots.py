@@ -30,31 +30,30 @@ def plot_contours(outs):
   plt.xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ',  final NLL: {:.3f}'.format(outs['final_NLL']))
   plt.show()
 
-def plot_contours_single(C, axs, rho, title=None, eps=1e-3, grid_res=200, i=0, j=1):
-  # grid_points = (1 - eps) * np.ones(d, grid_res)
-  # grid_points[i] = np.linspace(eps, 1 - eps, grid_res)
-  # grid_points[j] = np.linspace(eps, 1 - eps, grid_res)
+def plot_contours_single(C, axs, copula_params, copula_type='gaussian', title=None, eps=1e-3,
+                         grid_res=200,
+                         i=0, j=1):
   x = np.linspace(eps, 1 - eps, grid_res)
   y = np.linspace(eps, 1 - eps, grid_res)
   grid = np.meshgrid(x, y)
   flat_grid = t.tensor([g.flatten() for g in grid]).transpose(0,1)
   log_densities = C.log_density(flat_grid, bivariate=True, bv_i=i, bv_j=j).cpu().detach().numpy().reshape((grid_res,
                                                                                                            grid_res))
-  gauss_log_densities = utils.gaussian_copula_log_density(flat_grid, rho=rho).cpu().detach().numpy().reshape((grid_res,
-                                                                                                              grid_res))
+  true_log_densities = utils.copula_log_density(flat_grid, copula_type=copula_type, copula_params=copula_params
+                                                  ).cpu().detach().numpy().reshape((grid_res, grid_res))
 
   iX, iY = norm.ppf(grid)
   contours = [-4.5, -3.4, -2.8, -2.2, -1.6]
   colors_k = ['k'] * len(contours)
   colors_r = ['r'] * len(contours)
-  axs.contour(iX, iY, gauss_log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
+  axs.contour(iX, iY, true_log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
               colors=colors_k)
   axs.contour(iX, iY, log_densities + norm.logpdf(iX) + norm.logpdf(iY), contours,
               colors=colors_r)
   if title is not None:
     axs.title.set_text(title)
 
-def plot_contours_ext(outs, P, final_only=False):
+def plot_contours_ext(outs, copula_params, copula_type='gaussian', final_only=False):
   d = outs['h']['d']
   if final_only:
     models = [[len(outs['NLLs'])-1, outs['model']]]
@@ -65,7 +64,12 @@ def plot_contours_ext(outs, P, final_only=False):
     fig, axs = plt.subplots(d - 1, d - 1, figsize=(d * 3, d * 3))
     for i in range(d - 1):
       for j in range(i, d - 1):
-        plot_contours_single(model, axs[i, j], rho=P[i, j + 1], i=i, j=j + 1)
+        if copula_type == 'gaussian':
+          # create correlation matrix
+          c_cop_params = np.array([[1, copula_params[i, j + 1]], [copula_params[i, j + 1], 1]])
+        elif copula_type == 'gumbel':
+          c_cop_params = copula_params
+        plot_contours_single(model, axs[i, j], copula_params=c_cop_params, copula_type=copula_type, i=i, j=j + 1)
     axs[0, 0].set_ylabel('u_1')
     axs[1, 0].set_ylabel('u_2')
     axs[0, 0].set_title('u_2')

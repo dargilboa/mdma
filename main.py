@@ -13,43 +13,56 @@ else:
   t.set_default_tensor_type('torch.DoubleTensor')
 
 #%% fit copula
-d = 50
+d = 5
 h = {
-  'M': 500,
+  'M': 2000,
   'M_val': 500,
   'd': d,
   'n_iters': 600,
   'n': 100,
   'lambda_l2': 1e-5,
-  'lambda_H_diag': 1e-5,
+  'lambda_H_diag': 0,
   'lambda_H_full': 0,
   #'opt': 'sgd',
-  'lr': 5e-4,
+  'lr': 5e-3,
   }
 
 np.random.seed(1)
 t.manual_seed(1)
-P = utils.random_correlation_matrix(d)
-data = utils.generate_data(h['d'], h['M'], h['M_val'], P)
+# P = utils.random_correlation_matrix(d)
+# data = utils.generate_data(h['d'], h['M'], h['M_val'], P)
+copula_type = 'gumbel'
+copula_params = 1.67
+data = utils.generate_data(h['d'], h['M'], h['M_val'], copula_params=copula_params, copula_type=copula_type, )
 outs = fit.fit_neural_copula(data, h)
-plots.plot_contours_ext(outs, P)
+plots.plot_contours_ext(outs, copula_params=copula_params, copula_type=copula_type)
 
-#%% IAE plot
+#%% IAE estimation
 n_iters = 600
 n_samples = 1000
 rho = 0.6
+theta = 1.67
 Ms = [200, 500, 1000, 2500, 5000]
 ds = [3, 5, 10]
 n_reps = 1
 n_sam_reps = 100
 np.random.seed(1)
 t.manual_seed(1)
-file_name = 'IAEs_multisample'
+file_name = 'IAEs_gumbel'
+copula_types = []
+# copula_types += [{'type': 'gaussian',
+#                   'd': d,
+#                   'copula_params': np.eye(d) * (1 - rho) + np.ones((d,d)) * rho} for d in ds]
+copula_types += [{'type': 'gumbel',
+                  'd': d,
+                  'copula_params': theta} for d in ds]
 
-IAEs = t.zeros(n_reps, len(ds), len(Ms), 2)
+IAEs = np.zeros((n_reps, len(copula_types), len(Ms), 2))
 all_outs = []
 for r in range(n_reps):
-  for nd, d in enumerate(ds):
+  for nd, cop in enumerate(copula_types):
+    d = cop['d']
+    print(cop)
     for nM, M in enumerate(Ms):
       h = {
         'M': M,
@@ -58,31 +71,34 @@ for r in range(n_reps):
         'n_iters': n_iters,
         'n': 100,
         'lambda_l2': 1e-5,
-        'lambda_H_diag': 1e-5,
+        'lambda_H_diag': 0,
         'checkpoint_every': n_iters,
       }
       P = np.eye(d) * (1 - rho) + np.ones((d,d)) * rho
-      data = utils.generate_data(h['d'], h['M'], h['M_val'], P)
+      data = utils.generate_data(d, M, h['M_val'], copula_type=cop['type'],
+                                 copula_params=cop['copula_params'])
       outs = fit.fit_neural_copula(data, h)
       C = outs['best_val_NLL_model']
 
       curr_IAE = []
       for rs in range(n_sam_reps):
-        us, _ = utils.generate_data(d, n_samples, 0, P)
-        gd = utils.gaussian_copula_density(us, P)
+        us, _ = utils.generate_data(d, n_samples, 0, copula_type=cop['type'],
+                                 copula_params=cop['copula_params'])
+        gd = utils.copula_density(us, copula_type=cop['type'],
+                                 copula_params=cop['copula_params'])
         cd = t.exp(C.log_density(us))
         IAE = t.mean(t.abs(cd - gd) / gd)
         curr_IAE.append(IAE.cpu().detach().numpy())
       IAEs[r, nd, nM] = np.mean(curr_IAE), np.std(curr_IAE)
 
-      outs['IAEs'] = [np.mean(curr_IAE), np.std(curr_IAE)]
-      outs.pop('model')
-      outs.pop('checkpoints')
-      outs.pop('best_val_NLL_model')
-      outs['best_val_NLL_model_params'] = [p for p in C.parameters()]
+      # outs['IAEs'] = [np.mean(curr_IAE), np.std(curr_IAE)]
+      # outs.pop('model')
+      # outs.pop('checkpoints')
+      # outs.pop('best_val_NLL_model')
+      # outs['best_val_NLL_model_params'] = [p for p in C.parameters()]
       all_outs += [outs]
-      #np.save(file_name, [all_outs, IAEs, IAE_ms])
-      #print('Outputs saved to '.format(file_name))
+      np.save(file_name, IAEs)
+      print(f'Outputs saved to {file_name}')
 
 
 #%% IAEs plot
