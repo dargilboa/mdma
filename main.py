@@ -1,10 +1,12 @@
 # %%
 import torch as t
 import numpy as np
+import matplotlib.pyplot as plt
+import pyvinecopulib as pv
+
 import utils
 import plots
 import fit
-import matplotlib.pyplot as plt
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.DoubleTensor')
@@ -15,17 +17,17 @@ else:
 #%% fit copula
 d = 5
 h = {
-  'M': 2000,
-  'M_val': 500,
-  'd': d,
-  'n_iters': 600,
-  'n': 100,
-  'lambda_l2': 1e-5,
-  'lambda_H_diag': 0,
-  'lambda_H_full': 0,
-  #'opt': 'sgd',
-  'lr': 5e-3,
-  }
+    'M': 2000,
+    'M_val': 500,
+    'd': d,
+    'n_iters': 600,
+    'n': 100,
+    'lambda_l2': 1e-5,
+    'lambda_hess_diag': 0,
+    'lambda_hess_full': 0,
+    #'opt': 'sgd',
+    'lr': 5e-3,
+}
 
 np.random.seed(1)
 t.manual_seed(1)
@@ -33,11 +35,36 @@ t.manual_seed(1)
 # data = utils.generate_data(h['d'], h['M'], h['M_val'], P)
 copula_type = 'gumbel'
 copula_params = 1.67
-data = utils.generate_data(h['d'], h['M'], h['M_val'], copula_params=copula_params, copula_type=copula_type, )
+data = utils.generate_data(
+    h['d'],
+    h['M'],
+    h['M_val'],
+    copula_params=copula_params,
+    copula_type=copula_type,
+)
 outs = fit.fit_neural_copula(data, h)
-plots.plot_contours_ext(outs, copula_params=copula_params, copula_type=copula_type)
+plots.plot_contours_ext(outs,
+                        copula_params=copula_params,
+                        copula_type=copula_type)
 
-#%% IAE estimation
+train_data, val_data = data
+# if too slow, then use trunc_lvl
+vine_controls = pv.FitControlsVinecop(family_set=[pv.BicopFamily.tll])
+vine_fit = pv.Vinecop(train_data.cpu().detach().numpy(),
+                      controls=vine_controls)
+neural_train_ll = -outs['best_val_nll_model'].nll(
+    train_data).cpu().detach().numpy()
+vine_train_ll = vine_fit.loglik(
+    train_data.cpu().detach().numpy()) / train_data.shape[0]
+neural_val_ll = -outs['best_val_nll_model'].nll(
+    val_data).cpu().detach().numpy()
+vine_val_ll = vine_fit.loglik(
+    val_data.cpu().detach().numpy()) / val_data.shape[0]
+print(
+    'train LL(neural/vine): {:.4f}/{:.4f}, val LL(neural/vine): {:.4f}/{:.4f}'.
+    format(neural_train_ll, vine_train_ll, neural_val_ll, vine_val_ll))
+
+#%% iae estimation
 n_iters = 600
 n_samples = 1000
 rho = 0.6
@@ -48,16 +75,18 @@ n_reps = 1
 n_sam_reps = 100
 np.random.seed(1)
 t.manual_seed(1)
-file_name = 'IAEs_gumbel'
+file_name = 'iaes_gumbel'
 copula_types = []
 # copula_types += [{'type': 'gaussian',
 #                   'd': d,
 #                   'copula_params': np.eye(d) * (1 - rho) + np.ones((d,d)) * rho} for d in ds]
-copula_types += [{'type': 'gumbel',
-                  'd': d,
-                  'copula_params': theta} for d in ds]
+copula_types += [{
+    'type': 'gumbel',
+    'd': d,
+    'copula_params': theta
+} for d in ds]
 
-IAEs = np.zeros((n_reps, len(copula_types), len(Ms), 2))
+iaes = np.zeros((n_reps, len(copula_types), len(Ms), 4))
 all_outs = []
 for r in range(n_reps):
   for nd, cop in enumerate(copula_types):
@@ -65,63 +94,79 @@ for r in range(n_reps):
     print(cop)
     for nM, M in enumerate(Ms):
       h = {
-        'M': M,
-        'M_val': 500,
-        'd': d,
-        'n_iters': n_iters,
-        'n': 100,
-        'lambda_l2': 1e-5,
-        'lambda_H_diag': 0,
-        'checkpoint_every': n_iters,
+          'M': M,
+          'M_val': 500,
+          'd': d,
+          'n_iters': n_iters,
+          'n': 100,
+          'lambda_l2': 1e-5,
+          'lambda_hess_diag': 0,
+          'checkpoint_every': n_iters,
       }
-      P = np.eye(d) * (1 - rho) + np.ones((d,d)) * rho
-      data = utils.generate_data(d, M, h['M_val'], copula_type=cop['type'],
+      P = np.eye(d) * (1 - rho) + np.ones((d, d)) * rho
+      data = utils.generate_data(d,
+                                 M,
+                                 h['M_val'],
+                                 copula_type=cop['type'],
                                  copula_params=cop['copula_params'])
       outs = fit.fit_neural_copula(data, h)
-      C = outs['best_val_NLL_model']
-
-      curr_IAE = []
+      neural_fit = outs['best_val_nll_model']
+      vine_fit = pv.Vinecop(data[0].cpu().detach().numpy(),
+                            controls=vine_controls)
+      curr_iae_neural = []
+      curr_iae_vine = []
       for rs in range(n_sam_reps):
-        us, _ = utils.generate_data(d, n_samples, 0, copula_type=cop['type'],
-                                 copula_params=cop['copula_params'])
-        gd = utils.copula_density(us, copula_type=cop['type'],
-                                 copula_params=cop['copula_params'])
-        cd = t.exp(C.log_density(us))
-        IAE = t.mean(t.abs(cd - gd) / gd)
-        curr_IAE.append(IAE.cpu().detach().numpy())
-      IAEs[r, nd, nM] = np.mean(curr_IAE), np.std(curr_IAE)
-
-      # outs['IAEs'] = [np.mean(curr_IAE), np.std(curr_IAE)]
+        us, _ = utils.generate_data(d,
+                                    n_samples,
+                                    0,
+                                    copula_type=cop['type'],
+                                    copula_params=cop['copula_params'])
+        gd = utils.copula_density(us.cpu(),
+                                  copula_type=cop['type'],
+                                  copula_params=cop['copula_params'])
+        gd_np = gd.cpu().detach().numpy()
+        cd = t.exp(neural_fit.log_density(us))
+        vd = vine_fit.pdf(us.cpu().detach().numpy())
+        iae_neural = t.mean(t.abs(cd - gd) / gd)
+        iae_vine = np.mean(abs(vd - gd_np) / gd_np)
+        curr_iae_neural.append(iae_neural.cpu().detach().numpy())
+        curr_iae_vine.append(iae_vine)
+      iaes[r, nd, nM] = np.mean(curr_iae_neural), np.std(
+          curr_iae_neural), np.mean(curr_iae_vine), np.std(curr_iae_vine)
+      all_outs += [outs]
+      np.save(file_name, iaes)
+      print(f'Outputs saved to {file_name}')
+      # outs['iaes'] = [np.mean(curr_iae), np.std(curr_iae)]
       # outs.pop('model')
       # outs.pop('checkpoints')
-      # outs.pop('best_val_NLL_model')
-      # outs['best_val_NLL_model_params'] = [p for p in C.parameters()]
-      all_outs += [outs]
-      np.save(file_name, IAEs)
-      print(f'Outputs saved to {file_name}')
-
+      # outs.pop('best_val_nll_model')
+      # outs['best_val_nll_model_params'] = [p for p in neural_fit.parameters()]
 
 #%% IAEs plot
-IAEs = np.squeeze(IAEs)
-fig, axs = plt.subplots(1,3, figsize=(9,3))
+iaes = np.squeeze(iaes)
+fig, axs = plt.subplots(1, 3, figsize=(9, 3))
 Ms = [200, 500, 1000, 2500, 5000]
 ds = [3, 5, 10]
 for nd, d in enumerate(ds):
-  m, s = IAEs[nd][:,0], IAEs[nd][:,1]
-  axs[nd].plot(Ms, m, label='WO marginal densities')
-  axs[nd].fill_between(Ms, m - s, m + s, alpha=0.3)
+  m_neural, s_neural = iaes[nd][:, 0], iaes[nd][:, 1]
+  m_vine, s_vine = iaes[nd][:, 2], iaes[nd][:, 3]
+  axs[nd].plot(Ms, m_neural, label='neural')
+  axs[nd].plot(Ms, m_vine, label='vine')
+  axs[nd].fill_between(Ms, m_neural - s_neural, m_neural + s_neural, alpha=0.3)
+  axs[nd].fill_between(Ms, m_vine - s_vine, m_vine + s_vine, alpha=0.3)
   axs[nd].set_title(f'd={d}')
 
 for ax in axs.flatten():
   ax.set_xlabel('M')
   ax.set_ylabel('$\\widehat{IAE}$')
+
 plt.tight_layout()
 plt.show()
 
 #%% generate plots from saved data
-all_outs, IAEs, IAE_ms = np.load('IAEs_multisample.npy', allow_pickle=True)
-IAEs = t.squeeze(IAEs).detach().numpy()
-IAE_ms = t.squeeze(IAE_ms).detach().numpy()
+all_outs, iaes, iae_ms = np.load('iaes_multisample.npy', allow_pickle=True)
+iaes = t.squeeze(iaes).detach().numpy()
+iae_ms = t.squeeze(iae_ms).detach().numpy()
 
 import models
 n_iters = 600
@@ -134,40 +179,40 @@ n_sam_reps = 100
 np.random.seed(1)
 t.manual_seed(1)
 
-IAEs = t.zeros(n_reps, len(ds), len(Ms), n_sam_reps)
-IAE_ms = t.zeros(n_reps, len(ds), len(Ms), n_sam_reps)
+iaes = t.zeros(n_reps, len(ds), len(Ms), n_sam_reps)
+iae_ms = t.zeros(n_reps, len(ds), len(Ms), n_sam_reps)
 r = 0
 
 for outs in all_outs:
   d = outs['h']['d']
   M = outs['h']['M']
-  C = models.CopNet(100, d)
-  saved_params = outs['best_val_NLL_model_params']
-  C.W, C.b, C.a = saved_params
-  P = np.eye(d) * (1 - rho) + np.ones((d,d)) * rho
+  neural_fit = models.CopNet(100, d)
+  saved_params = outs['best_val_nll_model_params']
+  neural_fit.w, neural_fit.b, neural_fit.a = saved_params
+  P = np.eye(d) * (1 - rho) + np.ones((d, d)) * rho
   nd = ds.index(d)
   nM = Ms.index(M)
   for rs in range(n_sam_reps):
     us = t.rand(n_samples, d)
     gd = utils.gaussian_copula_density(us, P)
-    cd = t.exp(C.log_density(us))
-    IAE = t.mean(t.abs(cd - gd))
-    IAE_m = 0
-    # print(IAE, IAE_m)
+    cd = t.exp(neural_fit.log_density(us))
+    iae = t.mean(t.abs(cd - gd))
+    iae_m = 0
+    # print(iae, iae_m)
 
-    IAEs[r, nd, nM, rs] = IAE
-    IAE_ms[r, nd, nM, rs] = IAE_m
+    iaes[r, nd, nM, rs] = iae
+    iae_ms[r, nd, nM, rs] = iae_m
   print('.')
 
-IAEs = t.squeeze(IAEs).detach().numpy()
-IAE_ms = t.squeeze(IAE_ms).detach().numpy()
+iaes = t.squeeze(iaes).detach().numpy()
+iae_ms = t.squeeze(iae_ms).detach().numpy()
 
 #%% IAE plot
-fig, axs = plt.subplots(1,3, figsize=(9,3))
+fig, axs = plt.subplots(1, 3, figsize=(9, 3))
 Ms = [200, 500, 1000, 2500, 5000]
 ds = [3, 5, 10]
 for nd, d in enumerate(ds):
-  m, s = np.mean(IAEs[nd], axis=-1), np.std(IAEs[nd], axis=-1)
+  m, s = np.mean(iaes[nd], axis=-1), np.std(iaes[nd], axis=-1)
   axs[nd].plot(Ms, m, label='WO marginal densities')
   axs[nd].fill_between(Ms, m - s, m + s, alpha=0.3)
   axs[nd].set_title(f'd={d}')

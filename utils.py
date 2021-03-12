@@ -4,7 +4,8 @@ from scipy.stats import norm
 from torch.distributions.normal import Normal
 from copulae import GumbelCopula
 
-class d_interpolator():   # old, replaced with xitorch interpolation
+
+class d_interpolator():  # old, replaced with xitorch interpolation
   # interpolate first derivative
   def __init__(self, x, y):
     # we assume the function is monotonic
@@ -20,23 +21,32 @@ class d_interpolator():   # old, replaced with xitorch interpolation
 
     return np.take(self.dydx, inds)
 
+
 def sigmoid(x):
   return 1 / (1 + np.exp(-x))
+
 
 def invsigmoid(x, eps=1e-15):
   return t.log(x + eps) - t.log(1 - x + eps)
 
+
 def sigmoiddot(x):
   return t.sigmoid(x) * (1 - t.sigmoid(x))
 
+
 def ddsigmoid(x):
-  return t.sigmoid(x) * (1 - t.sigmoid(x)) ** 2 - t.sigmoid(x) ** 2 * (1 - t.sigmoid(x))
+  return t.sigmoid(x) * (1 - t.sigmoid(x))**2 - t.sigmoid(x)**2 * (
+      1 - t.sigmoid(x))
+
 
 def dddsigmoid(x):
-  return sigmoiddot(x) * ((1 - t.sigmoid(x)) ** 2 + t.sigmoid(x) ** 2  - 4 * sigmoiddot(x))
+  return sigmoiddot(x) * (
+      (1 - t.sigmoid(x))**2 + t.sigmoid(x)**2 - 4 * sigmoiddot(x))
+
 
 def invsigmoiddot(x):
   return 1 / (x * (1 - x))
+
 
 def generate_data(d, M, M_val, copula_params, copula_type='gaussian'):
   # copula_params is either a d x d correlation matrix for the gaussian case or a theta parameter
@@ -58,15 +68,19 @@ def generate_data(d, M, M_val, copula_params, copula_type='gaussian'):
     U = gumbel_copula.random(M + M_val)
     return [t.Tensor(U[:M]), t.Tensor(U[M:])]
 
+
 def gaussian_copula_log_density(u, rho):
   rho = t.tensor([rho])
   normal = Normal(loc=0, scale=1, validate_args=None)
   icdfu = normal.icdf(u)
-  exponent = (rho ** 2 * (icdfu[:,0] ** 2 + icdfu[:,1] ** 2) - 2 * rho * icdfu[:,0] * icdfu[:,1]) / (2 * (1 - rho ** 2))
-  return - t.log(t.sqrt(1 - rho ** 2)) - exponent
+  exponent = (rho**2 * (icdfu[:, 0]**2 + icdfu[:, 1]**2) -
+              2 * rho * icdfu[:, 0] * icdfu[:, 1]) / (2 * (1 - rho**2))
+  return -t.log(t.sqrt(1 - rho**2)) - exponent
+
 
 def copula_log_density(u, copula_params, copula_type='gaussian'):
   return t.log(copula_density(u, copula_params, copula_type=copula_type))
+
 
 def copula_density(us, copula_params, copula_type='gaussian'):
   # us : M x d tensor of points to sample
@@ -76,12 +90,14 @@ def copula_density(us, copula_params, copula_type='gaussian'):
     P = t.tensor(copula_params)
     normal = Normal(loc=0, scale=1, validate_args=None)
     ius = normal.icdf(us)
-    exponent = t.exp(-(1/2) * t.sum(ius @ (t.inverse(P) - t.eye(d)) * ius, dim=1))
+    exponent = t.exp(-(1 / 2) *
+                     t.sum(ius @ (t.inverse(P) - t.eye(d)) * ius, dim=1))
     return exponent * 1 / t.sqrt(t.det(P))
   elif copula_type == 'gumbel':
     theta = copula_params
     gumbel_copula = GumbelCopula(theta=theta, dim=d)
     return t.tensor(gumbel_copula.pdf(us))
+
 
 def density_w_gauss_marginals(us, copula_density):
   # us : M x d tensor of points on the hypercube
@@ -91,12 +107,14 @@ def density_w_gauss_marginals(us, copula_density):
   ius = normal.icdf(us)
   return copula_density * t.exp(t.sum(normal.log_prob(ius), dim=1))
 
+
 def gauss_marginals(us):
   # us : M x d tensor of points on the hypercube
   # returns product of gaussian densities
   normal = Normal(loc=0, scale=1, validate_args=None)
   ius = normal.icdf(us)
   return t.exp(t.sum(normal.log_prob(ius), dim=1))
+
 
 def bisect(f, x, lb, ub, n_iter=35):
   # inverts a scalar function f by bisection at x points
@@ -112,8 +130,10 @@ def bisect(f, x, lb, ub, n_iter=35):
 
   return x_temp
 
+
 def correlation_matrix(d, rho):
-  return np.eye(d) * (1 - rho) + np.ones((d,d)) * rho
+  return np.eye(d) * (1 - rho) + np.ones((d, d)) * rho
+
 
 def random_correlation_matrix(d):
   S = np.random.randn(d, d)
