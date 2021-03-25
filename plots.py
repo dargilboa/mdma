@@ -48,7 +48,9 @@ def plot_contours(outs):
 def plot_contours_single(model,
                          axs,
                          copula_params,
+                         marginal_params=None,
                          copula_type='gaussian',
+                         marginal_type='gaussian',
                          title=None,
                          eps=1e-3,
                          grid_res=200,
@@ -58,11 +60,13 @@ def plot_contours_single(model,
   y = np.linspace(eps, 1 - eps, grid_res)
   grid = np.meshgrid(x, y)
   flat_grid = t.tensor([g.flatten() for g in grid]).transpose(0, 1)
-  log_densities = model.log_density(flat_grid, bivariate=True, bv_i=i,
-                                    bv_j=j).cpu().detach().numpy().reshape(
-                                        (grid_res, grid_res))
+  log_densities = model.log_density(flat_grid,
+                                    inds=[i,
+                                          j]).cpu().detach().numpy().reshape(
+                                              (grid_res, grid_res))
   true_log_densities = utils.copula_log_density(
-      flat_grid.cpu(), copula_type=copula_type,
+      flat_grid.cpu().detach().numpy(),
+      copula_type=copula_type,
       copula_params=copula_params).cpu().detach().numpy().reshape(
           (grid_res, grid_res))
 
@@ -86,7 +90,9 @@ def plot_contours_single(model,
 
 def plot_contours_ext(outs,
                       copula_params,
+                      marginal_params=None,
                       copula_type='gaussian',
+                      marginal_type='gaussian',
                       final_only=False):
 
   d = outs['h']['d']
@@ -109,6 +115,7 @@ def plot_contours_ext(outs,
                              axs[i, j],
                              copula_params=c_cop_params,
                              copula_type=copula_type,
+                             marginal_type=marginal_type,
                              i=i,
                              j=j + 1)
     axs[0, 0].set_ylabel('u_1')

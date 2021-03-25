@@ -4,11 +4,13 @@ import models
 import copy
 
 
-def fit_neural_copula(data,
-                      h,
-                      verbose=True,
-                      print_every=20,
-                      checkpoint_every=100):
+def fit_neural_copula(
+    data,
+    h,
+    verbose=True,
+    print_every=20,
+    checkpoint_every=100,
+):
   # h: dictionary of hyperparameters
   # default hyperparameters
   default_h = {
@@ -17,7 +19,7 @@ def fit_neural_copula(data,
       'n_iters': 600,
       'update_z_every': 1,
       'b_std': 0.01,
-      '_std': 0.01,
+      'w_std': 0.01,
       'a_std': 0.01,
       'lambda_l2': 1e-4,
       'lambda_hess_full': 0,
@@ -29,18 +31,23 @@ def fit_neural_copula(data,
       'bp_through_z_update': False,
       'opt': 'adam',
       'lr': 5e-3,
+      'fit_marginals': False,
   }
 
   # merge h and default_h, overriding values in default_h with those in h
   h = {**default_h, **h}
 
-  model = models.CopNet(h['n'],
-                        h['d'],
-                        b_bias=0,
-                        b_std=h['b_std'],
-                        _std=h['_std'],
-                        a_std=h['a_std'],
-                        z_update_samples=h['M'])
+  if h['fit_marginals']:
+    model_to_fit = models.SklarNet
+  else:
+    model_to_fit = models.CopNet
+  model = model_to_fit(h['d'],
+                       n=h['n'],
+                       b_bias=0,
+                       b_std=h['b_std'],
+                       w_std=h['w_std'],
+                       a_std=h['a_std'],
+                       z_update_samples=h['M'])
   train_data, val_data = data
 
   with t.no_grad():
@@ -82,7 +89,7 @@ def fit_neural_copula(data,
     obj += h['lambda_l2'] * L2
 
     if h['lambda_ent'] > 0:
-      samples = model.sample(h['M'], n_bisect_iter=25)
+      samples = model.c_sample(h['M'], n_bisect_iter=25)
       ent = model.nll(samples)
       obj = obj - h['lambda_ent'] * ent
 
@@ -122,10 +129,6 @@ def fit_neural_copula(data,
     if (i + 1) % checkpoint_every == 0:
       checkpoints.append(copy.deepcopy(model))
       checkpoint_iters.append(i)
-
-    if i > 300 and nll > 0:
-      print('fitting unstable, terminating')
-      break
 
   outs = {
       'nlls': nlls,

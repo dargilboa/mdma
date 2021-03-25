@@ -14,6 +14,39 @@ else:
   print('No GPU found')
   t.set_default_tensor_type('torch.DoubleTensor')
 
+#%% fit full density (copula + marginals)
+d = 5
+h = {
+    'M': 2000,
+    'M_val': 500,
+    'd': d,
+    'n_iters': 600,
+    'n': 100,
+    'lambda_l2': 1e-5,
+    'lr': 5e-2,
+    'fit_marginals': True,
+}
+
+np.random.seed(1)
+t.manual_seed(1)
+
+copula_type = 'gumbel'
+copula_params = 1.67
+marginal_type = 'gaussian'
+marginal_params = [[0] * d, [1] * d]
+data = utils.generate_data(h['d'],
+                           h['M'],
+                           h['M_val'],
+                           copula_params=copula_params,
+                           marginal_params=marginal_params,
+                           copula_type=copula_type,
+                           marginal_type=marginal_type)
+outs = fit.fit_neural_copula(data, h)
+plots.plot_contours_ext(outs,
+                        copula_params=copula_params,
+                        copula_type=copula_type,
+                        final_only=True)
+
 #%% fit copula
 d = 5
 h = {
@@ -31,11 +64,10 @@ h = {
 
 np.random.seed(1)
 t.manual_seed(1)
-# P = utils.random_correlation_matrix(d)
-# data = utils.generate_data(h['d'], h['M'], h['M_val'], P)
+
 copula_type = 'gumbel'
 copula_params = 1.67
-data = utils.generate_data(
+data = utils.generate_c_data(
     h['d'],
     h['M'],
     h['M_val'],
@@ -104,11 +136,11 @@ for r in range(n_reps):
           'checkpoint_every': n_iters,
       }
       P = np.eye(d) * (1 - rho) + np.ones((d, d)) * rho
-      data = utils.generate_data(d,
-                                 M,
-                                 h['M_val'],
-                                 copula_type=cop['type'],
-                                 copula_params=cop['copula_params'])
+      data = utils.generate_c_data(d,
+                                   M,
+                                   h['M_val'],
+                                   copula_type=cop['type'],
+                                   copula_params=cop['copula_params'])
       outs = fit.fit_neural_copula(data, h)
       neural_fit = outs['best_val_nll_model']
       vine_fit = pv.Vinecop(data[0].cpu().detach().numpy(),
@@ -116,11 +148,11 @@ for r in range(n_reps):
       curr_iae_neural = []
       curr_iae_vine = []
       for rs in range(n_sam_reps):
-        us, _ = utils.generate_data(d,
-                                    n_samples,
-                                    0,
-                                    copula_type=cop['type'],
-                                    copula_params=cop['copula_params'])
+        us, _ = utils.generate_c_data(d,
+                                      n_samples,
+                                      0,
+                                      copula_type=cop['type'],
+                                      copula_params=cop['copula_params'])
         gd = utils.copula_density(us.cpu(),
                                   copula_type=cop['type'],
                                   copula_params=cop['copula_params'])
@@ -186,7 +218,7 @@ r = 0
 for outs in all_outs:
   d = outs['h']['d']
   M = outs['h']['M']
-  neural_fit = models.CopNet(100, d)
+  neural_fit = models.CopNet(d, 100)
   saved_params = outs['best_val_nll_model_params']
   neural_fit.w, neural_fit.b, neural_fit.a = saved_params
   P = np.eye(d) * (1 - rho) + np.ones((d, d)) * rho

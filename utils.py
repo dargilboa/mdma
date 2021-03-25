@@ -48,7 +48,28 @@ def invsigmoiddot(x):
   return 1 / (x * (1 - x))
 
 
-def generate_data(d, M, M_val, copula_params, copula_type='gaussian'):
+def generate_data(d,
+                  M,
+                  M_val,
+                  copula_params,
+                  marginal_params,
+                  copula_type='gaussian',
+                  marginal_type='gaussian'):
+  copula_data = generate_c_data(d,
+                                M,
+                                M_val,
+                                copula_params,
+                                copula_type=copula_type)
+  if marginal_type == 'gaussian':
+    mus, sigmas = marginal_params
+    data = [norm.ppf(cd) * sigmas + mus for cd in copula_data]
+  else:
+    raise ('Unknown marginal type')
+
+  return data
+
+
+def generate_c_data(d, M, M_val, copula_params, copula_type='gaussian'):
   # copula_params is either a d x d correlation matrix for the gaussian case or a theta parameter
   # for the gumbel case
   # returns [train_data, val_data]
@@ -129,6 +150,15 @@ def bisect(f, x, lb, ub, n_iter=35):
     x_temp = (xl + xh) / 2
 
   return x_temp
+
+
+def invert(f, r, lb=0, ub=1, n_bisect_iter=35):
+  # return f^{-1}(r), assuming lb <= f^{-1}(r) <= ub
+  return bisect(f, r, lb, ub, n_iter=n_bisect_iter)
+
+
+def stabilize(u, stab_const=1e-5):
+  return t.clamp(u, stab_const, 1 - stab_const)
 
 
 def correlation_matrix(d, rho):

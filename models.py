@@ -2,29 +2,33 @@ import torch as t
 import torch.nn as nn
 from xitorch.interpolate import Interp1D
 import utils
+from operator import itemgetter
 
 
 # %%
 class CopNet(nn.Module):
-  def __init__(self,
-               n,
-               d,
-               z_update_samples_scale=3,
-               z_update_samples=1000,
-               _std=0.1,
-               b_bias=0,
-               b_std=0.1,
-               a_std=1.0):
+  def __init__(
+      self,
+      d,
+      n=100,
+      z_update_samples_scale=3,
+      z_update_samples=1000,
+      w_std=0.1,
+      b_bias=0,
+      b_std=0.1,
+      a_std=1.0,
+  ):
     super(CopNet, self).__init__()
-    self.n = n
     self.d = d
+    self.n = n
     self.z_update_samples_scale = z_update_samples_scale
     self.z_update_samples = z_update_samples
     self.phi = t.sigmoid
     self.phidot = lambda x: t.sigmoid(x) * (1 - t.sigmoid(x))
+    self.nonneg = t.nn.Softplus()
 
     # initialize trianable parameters
-    self.w = nn.Parameter(t.Tensor(_std * t.randn(n, d)))
+    self.w = nn.Parameter(t.Tensor(w_std * t.randn(n, d)))
     self.b = nn.Parameter(t.Tensor(b_std * t.randn(n, d) + b_bias))
     self.a = nn.Parameter(t.Tensor(a_std * t.randn(n, )))
 
@@ -51,20 +55,18 @@ class CopNet(nn.Module):
         g = self.g(zdata)
         self.z, self.zdot = self.z_zdot(zdata, g)
 
-  def invert(self, f, r, n_bisect_iter=35):
-    # return f^-1(r)
-    return utils.bisect(f, r, 0, 1, n_iter=n_bisect_iter)
-
-  def sample(self, M, n_bisect_iter=35):
+  def c_sample(self, M, R=None, n_bisect_iter=35):
     # return M x d tensor of samples from the copula using the inverse Rosenblatt formula
+
+    # take random uniform samples if not provided:
     R = t.rand(self.d, M)
     samples = t.zeros_like(R)
     samples[0] = R[0]
     for k in range(1, self.d):
       rosenblatt_current = self.rosenblatt(k, samples[:k])
-      samples[k] = self.invert(rosenblatt_current,
-                               R[k],
-                               n_bisect_iter=n_bisect_iter)
+      samples[k] = utils.invert(rosenblatt_current,
+                                R[k],
+                                n_bisect_iter=n_bisect_iter)
 
     return samples.transpose(0, 1)
 
@@ -77,36 +79,26 @@ class CopNet(nn.Module):
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z[:k], us)])
     zdu = t.stack([zdot_j(u_j)[0] for zdot_j, u_j in zip(self.zdot[:k], us)
                    ])  # check for d > 2
-    A = t.einsum('ij,jm->ijm', t.exp(self.w[:, :k]),
+    A = t.einsum('ij,jm->ijm', self.nonneg(self.w[:, :k]),
                  zu) + self.b[:, :k].unsqueeze(-1).expand(self.n, k,
                                                           M)  # n x k-1 x M
-    AA = self.phidot(A) * t.exp(self.w[:, :k]).unsqueeze(-1).expand(
+    AA = self.phidot(A) * self.nonneg(self.w[:, :k]).unsqueeze(-1).expand(
         self.n, k, M) * zdu.unsqueeze(0).expand(self.n, k, M)
     AAA = t.prod(AA, 1)  # n x M
-    iZ = 1 / (t.sum(t.exp(self.a)))
+    iZ = 1 / (t.sum(self.nonneg(self.a)))
     cond_cdf = lambda u: iZ * t.einsum(
-        'i,im,im->m', t.exp(self.a), AAA,
+        'i,im,im->m', self.nonneg(self.a), AAA,
         self.phi(
-            t.exp(self.w[:, k]).unsqueeze(-1).expand(self.n, M) * self.z[k]
-            (u).unsqueeze(0).expand(self.n, M) + self.b[:, k].unsqueeze(
-                -1).expand(self.n, M)))  # M
+            self.nonneg(self.w[:, k]).unsqueeze(-1).expand(self.n, M) * self.z[
+                k](u).unsqueeze(0).expand(self.n, M) + self.b[:, k].unsqueeze(
+                    -1).expand(self.n, M)))  # M
     return lambda u: cond_cdf(u) / cond_cdf(t.ones(M))
 
   def nll(self, u):
-    # compute nll (per datapoint)
+    # compute negative log copula likelihood (per datapoint)
     # u: M x d tensor
-    M = u.shape[0]
-    nll = t.log(t.sum(t.exp(self.a)))
-    zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, u.transpose(0, 1))])
-    zdu = t.stack([
-        zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, u.transpose(0, 1))
-    ])  # d x M
-    A = t.einsum('ij,jm->ijm', t.exp(self.w),
-                 zu) + self.b.unsqueeze(-1).expand(self.n, self.d, M)
-    AA = self.phidot(A) * t.exp(self.w).unsqueeze(-1).expand(
-        self.n, self.d, M) * zdu
-    AAA = t.prod(AA, 1)  # n x M
-    nll -= t.mean(t.log(t.einsum('i,im->m', t.exp(self.a), AAA)))
+
+    nll = -t.mean(self.log_copula_density(u))
     return nll
 
   def diag_hess(self, us):
@@ -114,7 +106,7 @@ class CopNet(nn.Module):
     # us: M x d tensor of conditional values for u_1 ... u_{k-1} at M sampled points
     us = us.transpose(0, 1)
     M = us.shape[1]
-    e = t.exp(self.w)
+    e = self.nonneg(self.w)
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, us)])  # d x M
     zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, us)])  # d x M
     p = t.einsum('ij,jm->ijm', e, zu) + self.b.unsqueeze(-1).expand(
@@ -128,7 +120,7 @@ class CopNet(nn.Module):
     diag_hess = t.zeros(M, self.d)
     for k in range(self.d):
       prod = t.prod(t.cat([AA[:, :k, :], AA[:, k + 1:, :]], 1), 1)  # n x M
-      AAA = t.einsum('i,im,im->im', t.exp(self.a), prod, T[:, k, :])
+      AAA = t.einsum('i,im,im->im', self.nonneg(self.a), prod, T[:, k, :])
       AAA = t.sum(AAA, 0)  # M
       diag_hess[:, k] = AAA
     return diag_hess
@@ -138,7 +130,7 @@ class CopNet(nn.Module):
     # us: M x d tensor of conditional values for u_1 ... u_{k-1} at M sampled points
     us = us.transpose(0, 1)
     M = us.shape[1]
-    e = t.exp(self.w)
+    e = self.nonneg(self.w)
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, us)])  # d x M
     zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, us)])  # d x M
     p = t.einsum('ij,jm->ijm', e, zu) + self.b.unsqueeze(-1).expand(
@@ -155,28 +147,32 @@ class CopNet(nn.Module):
         prod = t.prod(
             t.cat([AA[:, :l, :], AA[:, l + 1:k, :], AA[:, k + 1:, :]], 1),
             1)  # n x M
-        AAA = t.einsum('i,im,im,im->im', t.exp(self.a), prod, T[:, k, :],
+        AAA = t.einsum('i,im,im,im->im', self.nonneg(self.a), prod, T[:, k, :],
                        T[:, l, :])
         AAA = t.sum(AAA, 0)  # M
         hess[:, k, l] = hess[:, l, k] = AAA
     return hess
 
-  def log_density(self, u, bivariate=False, bv_i=0, bv_j=1):
-    # compute log density
+  def log_copula_density(self, u, inds=...):
+    # compute log copula density
     # u: M x n_var tensor (n_var=d in the full case and 2 in the bivariate case)
+
     M = u.shape[0]
-    if bivariate:
-      n_vars = 2
-      z = [self.z[bv_i], self.z[bv_j]]
-      zdot = [self.zdot[bv_i], self.zdot[bv_j]]
-      e = t.exp(self.w[:, [bv_i, bv_j]])
-      b = self.b[:, [bv_i, bv_j]]
-    else:
+
+    if inds == ...:
+      # compute the density for all variables
       n_vars = self.d
       z = self.z
       zdot = self.zdot
-      e = t.exp(self.w)
+      e = self.nonneg(self.w)
       b = self.b
+    else:
+      # pick a subset of variables
+      n_vars = len(inds)
+      z = itemgetter(*inds)(self.z)
+      zdot = itemgetter(*inds)(self.zdot)
+    e = self.nonneg(self.w[:, inds])
+    b = self.b[:, inds]
     assert u.shape[1] == n_vars
 
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(z, u.transpose(0, 1))])
@@ -187,35 +183,18 @@ class CopNet(nn.Module):
     AA = self.phidot(A) * e.unsqueeze(-1).expand(
         self.n, n_vars, M) * zdu.unsqueeze(0).expand(self.n, n_vars, M)
     AAA = t.prod(AA, 1)  # n x M
-    log_density = t.log(t.einsum('i,im->m', t.exp(self.a), AAA)) - t.log(
-        t.sum(t.exp(self.a))).unsqueeze(-1).expand(M)
-    return log_density
-
-  def log_biv_marginal_density(self, u, i, j):
-    # compute log of bivariate marginal density of i and j variables for d > 2
-    # u: M x 2 tensor
-    M = u.shape[0]
-    z_ij = [self.z[i], self.z[j]]
-    zdot_ij = [self.zdot[i], self.zdot[j]]
-    zu = t.stack([z_j(u_j) for z_j, u_j in zip(z_ij, u.transpose(0, 1))])
-    zdu = t.stack(
-        [zdot_j(u_j) for zdot_j, u_j in zip(zdot_ij, u.transpose(0, 1))])
-    A = t.einsum('ij,jm->ijm', t.exp(self.w),
-                 zu) + self.b.unsqueeze(-1).expand(self.n, self.d, M)
-    AA = self.phidot(A) * t.exp(self.w).unsqueeze(-1).expand(
-        self.n, self.d, M) * zdu.unsqueeze(0).expand(self.n, self.d, M)
-    AAA = t.prod(AA, 1)  # n x M
-    log_density = t.log(t.einsum('i,im->m', t.exp(self.a), AAA)) - t.log(
-        t.sum(t.exp(self.a))).unsqueeze(-1).expand(M)
-    return log_density
+    log_copula_density = t.log(t.einsum(
+        'i,im->m', self.nonneg(self.a), AAA)) - t.log(
+            t.sum(self.nonneg(self.a))).unsqueeze(-1).expand(M)
+    return log_copula_density
 
   def g(self, u):
     # u: M x d tensor of points
     M = u.size(0)
-    A = t.einsum('ik,ka->ika', t.exp(self.w), u.transpose(
+    A = t.einsum('ik,ka->ika', self.nonneg(self.w), u.transpose(
         0, 1)) + self.b.unsqueeze(-1).expand(self.n, self.d, M)
-    return t.einsum('i,ika->ka', t.exp(self.a), self.phi(A)).transpose(
-        0, 1) / t.sum(t.exp(self.a))
+    return t.einsum('i,ika->ka', self.nonneg(self.a), self.phi(A)).transpose(
+        0, 1) / t.sum(self.nonneg(self.a))
 
   def z_zdot(self, s, g):
     # returns a list of d functions z_j = g_j^{-1} by using spline interpolation
@@ -254,5 +233,99 @@ class CopNet(nn.Module):
     ]
     return z, zdot
 
-  def stabilize(self, u, stab_const=1e-5):
-    return t.clamp(u, stab_const, 1 - stab_const)
+
+class SklarNet(CopNet):
+  def __init__(self, d, **kwargs):
+    self.d = d
+    self.L_m = kwargs.pop('L_m', 4)
+    self.n_m = kwargs.pop('n_m', 5)
+    self.w_m_std = kwargs.pop('w_m_std', 0.1)
+    self.b_m_std = kwargs.pop('b_m_std', 0)
+    self.a_m_std = kwargs.pop('a_m_std', 0.1)
+    self.phi_m = t.sigmoid
+    self.phi_mdot = lambda x: t.sigmoid(x) * (1 - t.sigmoid(x))
+    super(SklarNet, self).__init__(d, **kwargs)
+
+    # initialize parameters for marginal CDFs
+    assert self.L_m >= 2
+    self.w_ms = t.nn.ParameterList(
+        [nn.Parameter(t.Tensor(self.w_m_std * t.randn(1, self.n_m, d)))])
+    self.b_ms = t.nn.ParameterList(
+        [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, self.n_m, d)))])
+    self.a_ms = t.nn.ParameterList(
+        [nn.Parameter(t.Tensor(self.a_m_std * t.randn(1, d)))])
+    for _ in range(self.L_m - 2):
+      self.w_ms += [
+          nn.Parameter(t.Tensor(self.w_m_std * t.randn(self.n_m, self.n_m, d)))
+      ]
+      self.b_ms += [
+          nn.Parameter(t.Tensor(self.b_m_std * t.randn(self.n_m, d)))
+      ]
+      self.a_ms += [
+          nn.Parameter(t.Tensor(self.a_m_std * t.randn(self.n_m, d)))
+      ]
+    self.w_ms += [
+        nn.Parameter(t.Tensor(self.w_m_std * t.randn(self.n_m, 1, d)))
+    ]
+    self.b_ms += [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, 1, d)))]
+
+  def marginal_CDF(self, X, smoothing_factor=10, inds=...):
+    # marginal CDF of samples
+    # X : M x d tensor of sample points
+    X.requires_grad = True
+    F = t.unsqueeze(X, 1)
+
+    # keep only the parameters relevant for the subset of variables specified by inds
+    sliced_ws = [w[..., inds] for w in self.w_ms]
+    sliced_bs = [b[..., inds] for b in self.b_ms]
+    sliced_as = [a[..., inds] for a in self.a_ms]
+
+    # compute CDF using a feed-forward network
+    for w, b, a in zip(sliced_ws, sliced_bs, sliced_as):
+      F = t.einsum('mij,ikj->mkj', F, self.nonneg(w)) + b
+      F = F + t.tanh(F) * t.tanh(a)
+
+    F = t.einsum('mij,ikj->mkj', F, self.nonneg(sliced_ws[-1])) + sliced_bs[-1]
+    F = self.phi_m(F / smoothing_factor)
+
+    return t.squeeze(F)
+
+  def marginal_likelihood(self, X, inds=...):
+    # X : M x d tensor of sample points
+    # inds : list of indices to restrict to (if interested in a subset of variables)
+
+    # compute the marginal CDF F(X)
+    F = self.marginal_CDF(X, inds=inds)
+    F = t.sum(F)
+    f = t.autograd.grad(F, X, create_graph=True)[0]
+    return f
+
+  def log_density(self, X, inds=...):
+    # full density (copula + marginals)
+    # X : M x d tensor of sample points
+    # inds : list of indices to restrict to (if interested in a subset of variables)
+    F = self.marginal_CDF(X, inds=inds)
+    log_copula_density = self.log_copula_density(F, inds=inds)
+    log_marginal_density = t.sum(t.log(self.marginal_likelihood(X, inds=inds)),
+                                 dim=1)
+    log_density = log_copula_density + log_marginal_density
+    return log_density
+
+  def nll(self, X):
+    # negative log likelihood (copula + marginals, average over datapoints)
+    # X : M x d tensor of sample points
+
+    X = t.Tensor(X)
+    M = X.shape[0]
+    F = self.marginal_CDF(X)
+    return -t.sum(t.log(self.marginal_likelihood(X))) / M + super(
+        SklarNet, self).nll(F)
+
+  def sample(self, M, n_bisect_iter=35):
+    # return M x d tensor of samples from the full density
+
+    copula_samples = self.c_sample(M)
+    # samples = utils.invert(self.marginal_CDF,
+    #                        copula_samples,
+    #                        n_bisect_iter=n_bisect_iter)
+    raise NotImplementedError
