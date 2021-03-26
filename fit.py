@@ -2,6 +2,7 @@ import torch as t
 import torch.optim as optim
 import models
 import copy
+from torch.utils.data import TensorDataset, DataLoader
 
 
 def fit_neural_copula(
@@ -10,6 +11,7 @@ def fit_neural_copula(
     verbose=True,
     print_every=20,
     checkpoint_every=100,
+    val_every=20,
 ):
   # h: dictionary of hyperparameters
   # default hyperparameters
@@ -24,9 +26,8 @@ def fit_neural_copula(
       'w_std': 0.01,
       'a_std': 0.01,
       # fitting
-      'update_z_every': 1,
-      'M_val': 500,
-      'n_iters': 600,
+      'n_epochs': 10,
+      'batch_size': 100,
       'lambda_l2': 1e-4,
       'lambda_hess_full': 0,
       'lambda_hess_diag': 0,
@@ -34,6 +35,7 @@ def fit_neural_copula(
       'clip_max_norm': 0,
       'decrease_lr_time': 1,
       'decrease_lr_factor': 0.1,
+      'update_z_every': 1,
       'bp_through_z_update': False,
       'opt': 'adam',
       'lr': 5e-3,
@@ -63,118 +65,96 @@ def fit_neural_copula(
     if h['lambda_hess_full'] > 0:
       hess_norm_sq_0 = model.hess(train_data).norm()**2
 
+  # optimizer
   if h['opt'] == 'adam':
     opt_type = optim.Adam
   elif h['opt'] == 'sgd':
     opt_type = optim.SGD
   else:
     raise NameError
-
-  #optimizer = opt_type(model.parameters(), lr=h['lr'])
-  # optimize only the marginals
-  optimizer = opt_type([
-      {
-          'params': model.w_ms,
-      },
-      {
-          'params': model.b_ms,
-      },
-      {
-          'params': model.a_ms,
-      },
-  ],
-                       lr=h['lr_m'])
-
-  all_optimizer = opt_type([
-      {
-          'params': model.copula_params
-      },
-      {
-          'params': model.w_ms,
-          'lr': h['lr_m']
-      },
-      {
-          'params': model.b_ms,
-          'lr': h['lr_m']
-      },
-      {
-          'params': model.a_ms,
-          'lr': h['lr_m']
-      },
-  ],
-                           lr=h['lr'])
+  optimizer = opt_type(model.parameters(), lr=h['lr'])
   scheduler = t.optim.lr_scheduler.StepLR(optimizer,
                                           step_size=int(h['decrease_lr_time'] *
-                                                        h['n_iters']),
+                                                        h['n_epochs']),
                                           gamma=h['decrease_lr_factor'])
+
+  # set up data loader
+  train_dataset = TensorDataset(t.tensor(train_data))
+  train_loader = DataLoader(train_dataset, batch_size=h['batch_size'])
 
   t.autograd.set_detect_anomaly(True)
 
   # fit neural copula to data
+  iter = 0
   nlls = []
   val_nlls = []
   checkpoints = []
   checkpoint_iters = []
-  best_val_nll = t.tensor(float("Inf"))
+  val_nll = model.nll(val_data)
+  best_val_nll = val_nll
+  best_val_nll_model = copy.deepcopy(model)
   print(h)
-  for i in range(h['n_iters']):
+  for epoch in range(h['n_epochs']):
+    #for iter in range(h['n_iters']):
+    for batch_idx, batch in enumerate(train_loader):
+      # update parameters
+      train_data = batch[0]
+      optimizer.zero_grad()
+      nll = model.nll(train_data)
+      obj = nll
 
-    # switch to full optimizer
-    if i > h['n_iters_marg_only']:
-      optimizer = all_optimizer
+      # regularization
+      L2 = (t.norm(model.w)**2 + t.norm(model.a)**2 + t.norm(model.b)**2)
+      obj += h['lambda_l2'] * L2
 
-    # update parameters
-    optimizer.zero_grad()
-    nll = model.nll(train_data)
-    val_nll = model.nll(val_data)
-    obj = nll
+      if h['lambda_ent'] > 0:
+        samples = model.c_sample(h['M'], n_bisect_iter=25)
+        ent = model.nll(samples)
+        obj = obj - h['lambda_ent'] * ent
 
-    # regularization
-    L2 = (t.norm(model.w)**2 + t.norm(model.a)**2 + t.norm(model.b)**2)
-    obj += h['lambda_l2'] * L2
+      if h['lambda_hess_diag'] > 0:
+        tr_hess_sq = t.mean(model.diag_hess(train_data)**2) / tr_hess_sq_0
+        obj += h['lambda_hess_diag'] * tr_hess_sq
 
-    if h['lambda_ent'] > 0:
-      samples = model.c_sample(h['M'], n_bisect_iter=25)
-      ent = model.nll(samples)
-      obj = obj - h['lambda_ent'] * ent
+      if h['lambda_hess_full'] > 0:
+        hess_norm_sq = model.hess(train_data).norm()**2 / hess_norm_sq_0
+        obj += h['lambda_hess_full'] * hess_norm_sq
 
-    if h['lambda_hess_diag'] > 0:
-      tr_hess_sq = t.mean(model.diag_hess(train_data)**2) / tr_hess_sq_0
-      obj += h['lambda_hess_diag'] * tr_hess_sq
+      obj.backward()
 
-    if h['lambda_hess_full'] > 0:
-      hess_norm_sq = model.hess(train_data).norm()**2 / hess_norm_sq_0
-      obj += h['lambda_hess_full'] * hess_norm_sq
+      if h['clip_max_norm'] > 0:
+        t.nn.utils.clip_grad_value_(model.parameters(), h['clip_max_norm'])
 
-    obj.backward()
+      optimizer.step()
+      scheduler.step()
 
-    if h['clip_max_norm'] > 0:
-      t.nn.utils.clip_grad_value_(model.parameters(), h['clip_max_norm'])
+      # update z approximation, can also take the data as input
+      if iter % h['update_z_every'] == 0:
+        model.update_zs(bp_through_z_update=h['bp_through_z_update'])
 
-    optimizer.step()
-    scheduler.step()
+      nlls.append(nll.cpu().detach().numpy())
 
-    # update z approximation, can also take the data as input
-    if i % h['update_z_every'] == 0:
-      model.update_zs(bp_through_z_update=h['bp_through_z_update'])
+      if iter % val_every == 0:
+        val_nll = model.nll(val_data)
+        val_nlls.append(val_nll.cpu().detach().numpy())
+        if val_nll < best_val_nll:
+          best_val_nll = val_nll.detach().clone()
+          best_val_nll_model = copy.deepcopy(model)
 
-    nlls.append(nll.cpu().detach().numpy())
-    val_nlls.append(val_nll.cpu().detach().numpy())
-    if val_nll < best_val_nll:
-      best_val_nll = val_nll.detach().clone()
-      best_val_nll_model = copy.deepcopy(model)
+      if verbose and iter % print_every == 0:
+        print('iteration {}, train nll: {:.4f}, val nll: {:.4f}'.format(
+            iter,
+            nll.cpu().detach().numpy(),
+            val_nll.cpu().detach().numpy(),
+        ))
 
-    if verbose and i % print_every == 0:
-      print('iteration {}, train nll: {:.4f}, val nll: {:.4f}'.format(
-          i,
-          nll.cpu().detach().numpy(),
-          val_nll.cpu().detach().numpy(),
-      ))
+      if (iter + 1) % checkpoint_every == 0:
+        checkpoints.append(copy.deepcopy(model))
+        checkpoint_iters.append(iter)
 
-    if (i + 1) % checkpoint_every == 0:
-      checkpoints.append(copy.deepcopy(model))
-      checkpoint_iters.append(i)
+      iter += 1
 
+  # collect outputs
   outs = {
       'nlls': nlls,
       'val_nlls': val_nlls,

@@ -17,16 +17,15 @@ else:
 #%% fit full density (copula + marginals)
 d = 3
 h = {
-    'M': 2000,
+    'M': 200,
     'M_val': 500,
     'd': d,
-    'n_iters': 600,
+    'n_epochs': 100,
+    'batch_size': 200,
     'n': 100,
     'lambda_l2': 1e-5,
     'lr': 5e-3,
-    'lr_m': 5e-3,
     'fit_marginals': True,
-    'n_iters_marg_only': 0,
 }
 
 np.random.seed(1)
@@ -59,7 +58,7 @@ h = {
     'M': 2000,
     'M_val': 500,
     'd': d,
-    'n_iters': 600,
+    'n_epochs': 600,
     'n': 100,
     'lambda_l2': 1e-5,
     'lambda_hess_diag': 0,

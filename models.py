@@ -31,7 +31,6 @@ class CopNet(nn.Module):
     self.w = nn.Parameter(t.Tensor(w_std * t.randn(n, d)))
     self.b = nn.Parameter(t.Tensor(b_std * t.randn(n, d) + b_bias))
     self.a = nn.Parameter(t.Tensor(a_std * t.randn(n, )))
-    self.copula_params = [self.w, self.b, self.a]
 
     # initialize z using normal samples
     self.update_zs()
