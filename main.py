@@ -15,7 +15,7 @@ else:
   t.set_default_tensor_type('torch.DoubleTensor')
 
 #%% fit full density (copula + marginals)
-d = 5
+d = 3
 h = {
     'M': 2000,
     'M_val': 500,
@@ -23,8 +23,10 @@ h = {
     'n_iters': 600,
     'n': 100,
     'lambda_l2': 1e-5,
-    'lr': 5e-2,
+    'lr': 5e-3,
+    'lr_m': 5e-3,
     'fit_marginals': True,
+    'n_iters_marg_only': 0,
 }
 
 np.random.seed(1)
@@ -33,7 +35,7 @@ t.manual_seed(1)
 copula_type = 'gumbel'
 copula_params = 1.67
 marginal_type = 'gaussian'
-marginal_params = [[0] * d, [1] * d]
+marginal_params = [np.array([0] * d), np.array([1] * d)]
 data = utils.generate_data(h['d'],
                            h['M'],
                            h['M_val'],
@@ -42,10 +44,14 @@ data = utils.generate_data(h['d'],
                            copula_type=copula_type,
                            marginal_type=marginal_type)
 outs = fit.fit_neural_copula(data, h)
-plots.plot_contours_ext(outs,
-                        copula_params=copula_params,
-                        copula_type=copula_type,
-                        final_only=True)
+plots.plot_contours_ext(
+    outs,
+    copula_params=copula_params,
+    copula_type=copula_type,
+    marginal_type=marginal_type,
+    marginal_params=marginal_params,
+    model_includes_marginals=True,
+)
 
 #%% fit copula
 d = 5

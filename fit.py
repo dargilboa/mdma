@@ -14,13 +14,19 @@ def fit_neural_copula(
   # h: dictionary of hyperparameters
   # default hyperparameters
   default_h = {
+      # architecture
       'n': 200,
-      'M_val': 500,
-      'n_iters': 600,
-      'update_z_every': 1,
+      'n_m': 5,
+      'L_m': 4,
+      'fit_marginals': False,
+      # initialization
       'b_std': 0.01,
       'w_std': 0.01,
       'a_std': 0.01,
+      # fitting
+      'update_z_every': 1,
+      'M_val': 500,
+      'n_iters': 600,
       'lambda_l2': 1e-4,
       'lambda_hess_full': 0,
       'lambda_hess_diag': 0,
@@ -31,7 +37,6 @@ def fit_neural_copula(
       'bp_through_z_update': False,
       'opt': 'adam',
       'lr': 5e-3,
-      'fit_marginals': False,
   }
 
   # merge h and default_h, overriding values in default_h with those in h
@@ -43,6 +48,8 @@ def fit_neural_copula(
     model_to_fit = models.CopNet
   model = model_to_fit(h['d'],
                        n=h['n'],
+                       n_m=h['n_m'],
+                       L_m=h['L_m'],
                        b_bias=0,
                        b_std=h['b_std'],
                        w_std=h['w_std'],
@@ -57,12 +64,45 @@ def fit_neural_copula(
       hess_norm_sq_0 = model.hess(train_data).norm()**2
 
   if h['opt'] == 'adam':
-    optimizer = optim.Adam(model.parameters(), lr=h['lr'])
+    opt_type = optim.Adam
   elif h['opt'] == 'sgd':
-    optimizer = optim.SGD(model.parameters(), lr=h['lr'])
+    opt_type = optim.SGD
   else:
     raise NameError
 
+  #optimizer = opt_type(model.parameters(), lr=h['lr'])
+  # optimize only the marginals
+  optimizer = opt_type([
+      {
+          'params': model.w_ms,
+      },
+      {
+          'params': model.b_ms,
+      },
+      {
+          'params': model.a_ms,
+      },
+  ],
+                       lr=h['lr_m'])
+
+  all_optimizer = opt_type([
+      {
+          'params': model.copula_params
+      },
+      {
+          'params': model.w_ms,
+          'lr': h['lr_m']
+      },
+      {
+          'params': model.b_ms,
+          'lr': h['lr_m']
+      },
+      {
+          'params': model.a_ms,
+          'lr': h['lr_m']
+      },
+  ],
+                           lr=h['lr'])
   scheduler = t.optim.lr_scheduler.StepLR(optimizer,
                                           step_size=int(h['decrease_lr_time'] *
                                                         h['n_iters']),
@@ -78,6 +118,11 @@ def fit_neural_copula(
   best_val_nll = t.tensor(float("Inf"))
   print(h)
   for i in range(h['n_iters']):
+
+    # switch to full optimizer
+    if i > h['n_iters_marg_only']:
+      optimizer = all_optimizer
+
     # update parameters
     optimizer.zero_grad()
     nll = model.nll(train_data)

@@ -31,6 +31,7 @@ class CopNet(nn.Module):
     self.w = nn.Parameter(t.Tensor(w_std * t.randn(n, d)))
     self.b = nn.Parameter(t.Tensor(b_std * t.randn(n, d) + b_bias))
     self.a = nn.Parameter(t.Tensor(a_std * t.randn(n, )))
+    self.copula_params = [self.w, self.b, self.a]
 
     # initialize z using normal samples
     self.update_zs()
@@ -268,8 +269,9 @@ class SklarNet(CopNet):
         nn.Parameter(t.Tensor(self.w_m_std * t.randn(self.n_m, 1, d)))
     ]
     self.b_ms += [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, 1, d)))]
+    self.marginal_params = [self.w_ms, self.b_ms, self.a_ms]
 
-  def marginal_CDF(self, X, smoothing_factor=10, inds=...):
+  def marginal_CDF(self, X, smoothing_factor=4, inds=...):
     # marginal CDF of samples
     # X : M x d tensor of sample points
     X.requires_grad = True
@@ -318,8 +320,8 @@ class SklarNet(CopNet):
     X = t.Tensor(X)
     M = X.shape[0]
     F = self.marginal_CDF(X)
-    return -t.sum(t.log(self.marginal_likelihood(X))) / M + super(
-        SklarNet, self).nll(F)
+    return - t.sum(t.log(self.marginal_likelihood(X))) / M \
+           + super(SklarNet, self).nll(F)
 
   def sample(self, M, n_bisect_iter=35):
     # return M x d tensor of samples from the full density
