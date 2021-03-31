@@ -4,15 +4,20 @@ import models
 import copy
 from torch.utils.data import TensorDataset, DataLoader
 
+if t.cuda.is_available():
+  t.set_default_tensor_type('torch.cuda.DoubleTensor')
+else:
+  print('No GPU found')
+  t.set_default_tensor_type('torch.DoubleTensor')
 
-def fit_neural_copula(
-    data,
-    h,
-    verbose=True,
-    print_every=20,
-    checkpoint_every=100,
-    val_every=20,
-):
+
+def fit_neural_copula(data,
+                      h,
+                      verbose=True,
+                      print_every=20,
+                      checkpoint_every=100,
+                      val_every=20,
+                      max_iters=-1):
   # h: dictionary of hyperparameters
   # default hyperparameters
   default_h = {
@@ -45,18 +50,24 @@ def fit_neural_copula(
   h = {**default_h, **h}
 
   if h['fit_marginals']:
-    model_to_fit = models.SklarNet
+    model = models.SklarNet(h['d'],
+                            n=h['n'],
+                            n_m=h['n_m'],
+                            L_m=h['L_m'],
+                            b_bias=0,
+                            b_std=h['b_std'],
+                            w_std=h['w_std'],
+                            a_std=h['a_std'],
+                            z_update_samples=h['batch_size'])
   else:
-    model_to_fit = models.CopNet
-  model = model_to_fit(h['d'],
-                       n=h['n'],
-                       n_m=h['n_m'],
-                       L_m=h['L_m'],
-                       b_bias=0,
-                       b_std=h['b_std'],
-                       w_std=h['w_std'],
-                       a_std=h['a_std'],
-                       z_update_samples=h['M'])
+    model = models.CopNet(h['d'],
+                          n=h['n'],
+                          b_bias=0,
+                          b_std=h['b_std'],
+                          w_std=h['w_std'],
+                          a_std=h['a_std'],
+                          z_update_samples=h['batch_size'])
+
   train_data, val_data = data
 
   with t.no_grad():
@@ -79,8 +90,13 @@ def fit_neural_copula(
                                           gamma=h['decrease_lr_factor'])
 
   # set up data loader
-  train_dataset = TensorDataset(t.tensor(train_data))
+  if type(train_data) is not t.Tensor:
+    train_data = t.tensor(train_data)
+    val_data = t.tensor(val_data)
+  train_dataset = TensorDataset(train_data)
   train_loader = DataLoader(train_dataset, batch_size=h['batch_size'])
+  val_dataset = TensorDataset(val_data)
+  val_loader = DataLoader(val_dataset, batch_size=h['batch_size'])
 
   t.autograd.set_detect_anomaly(True)
 
@@ -88,19 +104,19 @@ def fit_neural_copula(
   iter = 0
   nlls = []
   val_nlls = []
+  val_nll_iters = []
   checkpoints = []
   checkpoint_iters = []
-  val_nll = model.nll(val_data)
+  val_nll = eval_val_nll(model, val_loader)
   best_val_nll = val_nll
   best_val_nll_model = copy.deepcopy(model)
   print(h)
   for epoch in range(h['n_epochs']):
-    #for iter in range(h['n_iters']):
     for batch_idx, batch in enumerate(train_loader):
       # update parameters
-      train_data = batch[0]
+      batch_data = batch[0]
       optimizer.zero_grad()
-      nll = model.nll(train_data)
+      nll = model.nll(batch_data)
       obj = nll
 
       # regularization
@@ -113,11 +129,11 @@ def fit_neural_copula(
         obj = obj - h['lambda_ent'] * ent
 
       if h['lambda_hess_diag'] > 0:
-        tr_hess_sq = t.mean(model.diag_hess(train_data)**2) / tr_hess_sq_0
+        tr_hess_sq = t.mean(model.diag_hess(batch_data)**2) / tr_hess_sq_0
         obj += h['lambda_hess_diag'] * tr_hess_sq
 
       if h['lambda_hess_full'] > 0:
-        hess_norm_sq = model.hess(train_data).norm()**2 / hess_norm_sq_0
+        hess_norm_sq = model.hess(batch_data).norm()**2 / hess_norm_sq_0
         obj += h['lambda_hess_full'] * hess_norm_sq
 
       obj.backward()
@@ -135,8 +151,9 @@ def fit_neural_copula(
       nlls.append(nll.cpu().detach().numpy())
 
       if iter % val_every == 0:
-        val_nll = model.nll(val_data)
+        val_nll = eval_val_nll(model, val_loader)
         val_nlls.append(val_nll.cpu().detach().numpy())
+        val_nll_iters.append(iter)
         if val_nll < best_val_nll:
           best_val_nll = val_nll.detach().clone()
           best_val_nll_model = copy.deepcopy(model)
@@ -153,11 +170,14 @@ def fit_neural_copula(
         checkpoint_iters.append(iter)
 
       iter += 1
+      if iter > max_iters:
+        break
 
   # collect outputs
   outs = {
       'nlls': nlls,
       'val_nlls': val_nlls,
+      'val_nll_iters': val_nll_iters,
       'model': model,
       'h': h,
       'data': data,
@@ -167,3 +187,11 @@ def fit_neural_copula(
   }
 
   return outs
+
+
+def eval_val_nll(model, val_loader):
+  val_nll = 0
+  for batch_idx, batch in enumerate(val_loader):
+    batch_data = batch[0]
+    val_nll += model.nll(batch_data)
+  return val_nll / (batch_idx + 1)

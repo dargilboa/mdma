@@ -3,6 +3,7 @@ import torch as t
 import numpy as np
 import matplotlib.pyplot as plt
 import pyvinecopulib as pv
+import time
 
 import utils
 import plots
@@ -14,14 +15,47 @@ else:
   print('No GPU found')
   t.set_default_tensor_type('torch.DoubleTensor')
 
-#%% fit full density (copula + marginals)
-d = 3
+#%% fit copula density
+d = 5
 h = {
-    'M': 200,
+    'M': 2000,
+    'batch_size': 2000,
     'M_val': 500,
     'd': d,
     'n_epochs': 100,
-    'batch_size': 200,
+    'n': 100,
+    'lambda_l2': 1e-5,
+    'lambda_hess_diag': 0,
+    'lambda_hess_full': 0,
+    #'opt': 'sgd',
+    'lr': 5e-3,
+}
+
+np.random.seed(1)
+t.manual_seed(1)
+
+copula_type = 'gumbel'
+copula_params = 1.67
+data = utils.generate_c_data(
+    h['d'],
+    h['M'],
+    h['M_val'],
+    copula_params=copula_params,
+    copula_type=copula_type,
+)
+outs = fit.fit_neural_copula(data, h)
+plots.plot_contours_ext(outs,
+                        copula_params=copula_params,
+                        copula_type=copula_type)
+
+#%% fit full density (copula + marginals)
+d = 3
+h = {
+    'M': 2000,
+    'M_val': 500,
+    'd': d,
+    'n_epochs': 1000,
+    'batch_size': 2000,
     'n': 100,
     'lambda_l2': 1e-5,
     'lr': 5e-3,
@@ -42,7 +76,10 @@ data = utils.generate_data(h['d'],
                            marginal_params=marginal_params,
                            copula_type=copula_type,
                            marginal_type=marginal_type)
+start_time = time.time()
 outs = fit.fit_neural_copula(data, h)
+run_time = (time.time() - start_time) / 60
+print(f'Runtime: {run_time:.3g} mins')
 plots.plot_contours_ext(
     outs,
     copula_params=copula_params,
@@ -52,10 +89,11 @@ plots.plot_contours_ext(
     model_includes_marginals=True,
 )
 
-#%% fit copula
+#%% fit copula density
 d = 5
 h = {
     'M': 2000,
+    'batch_size': 2000,
     'M_val': 500,
     'd': d,
     'n_epochs': 600,

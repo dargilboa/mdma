@@ -45,32 +45,37 @@ def plot_contours(outs):
   plt.show()
 
 
-def plot_contours_single(model,
-                         axs,
-                         copula_params,
-                         marginal_params=None,
-                         copula_type='gaussian',
-                         marginal_type='gaussian',
-                         model_includes_marginals=False,
-                         title=None,
-                         eps=1e-3,
-                         grid_res=200,
-                         i=0,
-                         j=1):
-  # create grid on hypercube and evaluate ground truth copula density
-  x = np.linspace(eps, 1 - eps, grid_res)
-  y = np.linspace(eps, 1 - eps, grid_res)
-  grid = np.meshgrid(x, y)
-  flat_grid = t.tensor([g.flatten() for g in grid]).transpose(0, 1)
-  true_copula_log_density = utils.copula_log_density(
-      flat_grid.cpu().detach().numpy(),
-      copula_type=copula_type,
-      copula_params=copula_params).cpu().detach().numpy().reshape(
-          (grid_res, grid_res))
+def plot_contours_single(
+    model,
+    axs,
+    copula_params,
+    marginal_params=None,
+    copula_type='gaussian',
+    marginal_type='gaussian',
+    model_includes_marginals=False,
+    title=None,
+    eps=1e-3,
+    grid_res=200,
+    i=0,
+    j=1,
+    data_ij=None,
+    contours=(-4.5, -3.4, -2.8, -2.2, -1.6),
+):
 
-  contours = [-4.5, -3.4, -2.8, -2.2, -1.6]
   colors_k = ['k'] * len(contours)
   colors_r = ['r'] * len(contours)
+
+  # create grid on hypercube and evaluate ground truth copula density
+  if copula_type is not 'data':
+    x = np.linspace(eps, 1 - eps, grid_res)
+    y = np.linspace(eps, 1 - eps, grid_res)
+    grid = np.meshgrid(x, y)
+    flat_grid = t.tensor([g.flatten() for g in grid]).transpose(0, 1)
+    true_copula_log_density = utils.copula_log_density(
+        flat_grid.cpu().detach().numpy(),
+        copula_type=copula_type,
+        copula_params=copula_params).cpu().detach().numpy().reshape(
+            (grid_res, grid_res))
 
   if model_includes_marginals:
     # include the marginal densities
@@ -83,6 +88,10 @@ def plot_contours_single(model,
       # modify iX, iY to match the marginals
       iX = iX * sigmas[0] + mus[0]
       iY = iY * sigmas[1] + mus[1]
+    elif marginal_type == 'data':
+      margin = 0.05
+      iX = np.linspace(min(data_ij[0]), max(data_ij[0]), grid_res)
+      iY = np.linspace(min(data_ij[1]), max(data_ij[1]), grid_res)
     else:
       raise Exception('Unknown marginal type')
 
@@ -105,7 +114,10 @@ def plot_contours_single(model,
     model_log_density = model_log_copula_density + norm.logpdf(
         iX) + norm.logpdf(iY)
 
-  axs.contour(iX, iY, true_log_density, contours, colors=colors_k)
+  if copula_type is not 'data':
+    axs.contour(iX, iY, true_log_density, contours, colors=colors_k)
+  else:
+    axs.scatter(data_ij[0], data_ij[1])
   axs.contour(iX, iY, model_log_density, contours, colors=colors_r)
   if title is not None:
     axs.title.set_text(title)
@@ -117,7 +129,8 @@ def plot_contours_ext(outs,
                       copula_type='gaussian',
                       marginal_type='gaussian',
                       model_includes_marginals=False,
-                      final_only=False):
+                      final_only=False,
+                      data=None):
 
   d = outs['h']['d']
   if final_only:
@@ -137,12 +150,22 @@ def plot_contours_ext(outs,
                                    [copula_params[i, j + 1], 1]])
         elif copula_type == 'gumbel':
           c_cop_params = copula_params
+        else:
+          c_cop_params = None
 
         # get marginal params for the plotted variables
-        if marginal_type == 'gaussian':
-          marginal_params_ij = [mp[[i, j]] for mp in marginal_params]
+        if model_includes_marginals:
+          if marginal_type == 'gaussian':
+            marginal_params_ij = [mp[[i, j]] for mp in marginal_params]
+            data_ij = None
+          elif marginal_type == 'data':
+            marginal_params_ij = None
+            data_ij = [data[:, i], data[:, j]]
+          else:
+            raise Exception('Unknown marginal type')
         else:
-          raise Exception('Unknown marginal type')
+          marginal_params_ij = None
+          data_ij = None
 
         # plot contours
         plot_contours_single(model,
@@ -153,7 +176,8 @@ def plot_contours_ext(outs,
                              marginal_params=marginal_params_ij,
                              model_includes_marginals=model_includes_marginals,
                              i=i,
-                             j=j + 1)
+                             j=j + 1,
+                             data_ij=data_ij)
     for i in range(d - 1):
       axs[i, 0].set_ylabel(f'u_{i+1}')
       axs[0, i].set_title(f'u_{i+2}')
@@ -166,7 +190,10 @@ def plot_contours_ext(outs,
       ind_nll_plot = 0
       alpha = 0.5
     axs[-1, ind_nll_plot].plot(outs['nlls'], alpha=alpha, label='train')
-    axs[-1, ind_nll_plot].plot(outs['val_nlls'], alpha=alpha, label='val')
+    axs[-1, ind_nll_plot].plot(outs['val_nll_iters'],
+                               outs['val_nlls'],
+                               alpha=alpha,
+                               label='val')
     axs[-1, ind_nll_plot].legend()
     axs[-1, ind_nll_plot].grid()
     axs[-1, ind_nll_plot].scatter(iter,

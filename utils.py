@@ -5,21 +5,31 @@ from torch.distributions.normal import Normal
 from copulae import GumbelCopula
 
 
-class d_interpolator():  # old, replaced with xitorch interpolation
-  # interpolate first derivative
+class linear_interp():
+  # linear interpolator
   def __init__(self, x, y):
-    # we assume the function is monotonic
-    self.x = np.sort(np.squeeze(x))
-    self.y = np.sort(np.squeeze(y))
-    self.dydx = np.diff(self.y) / np.diff(self.x)
+    # we assume y(x) is monotonic, x_i \neq x_j
+    self.x = x  # t.sort(t.squeeze(x))[0]
+    self.y = y  # t.sort(t.squeeze(y))[0]
+    self.num_knots = len(x)
+    self.dydx = t.div(self.y[1:] - self.y[:-1], self.x[1:] - self.x[:-1])
 
-  def interpolate_derivative(self, t):
-    inds = np.searchsorted(self.x, t)
+  def __call__(self, points):
+    inds = t.searchsorted(self.x, points) - 1
+    lb_inds = t.where(inds == -1)
+    ub_inds = t.where(inds == self.num_knots - 1)
+
     # extrapolating using the values at the edges
-    max_diff_ind = len(self.x) - 2
-    inds = [min(max(ind - 1, 0), max_diff_ind) for ind in inds]
+    inds = t.clamp(inds, 0, self.num_knots - 1)
+    diff_inds = t.clamp(inds, 0, self.num_knots - 2)
 
-    return np.take(self.dydx, inds)
+    interps = t.take(self.y, inds) \
+           + t.take(self.dydx, diff_inds) * (points - t.take(self.x, inds))
+
+    # adding in values at the edges
+    interps[lb_inds] = self.y[0]
+    interps[ub_inds] = self.y[-1]
+    return interps
 
 
 def sigmoid(x):
@@ -62,7 +72,10 @@ def generate_data(d,
                                 copula_type=copula_type)
   if marginal_type == 'gaussian':
     mus, sigmas = marginal_params
-    data = [norm.ppf(cd) * sigmas + mus for cd in copula_data]
+    data = [
+        norm.ppf(cd.cpu().detach().numpy()) * sigmas + mus
+        for cd in copula_data
+    ]
   else:
     raise ('Unknown marginal type')
 
@@ -170,3 +183,7 @@ def random_correlation_matrix(d):
   P = np.dot(S, S.transpose())
   P = P / np.sqrt(np.diag(P))[:, None] / np.sqrt(np.diag(P))[None, :]
   return P
+
+
+def normalize(M):
+  return (M - np.mean(M, axis=0)) / np.std(M, axis=0)

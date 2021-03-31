@@ -1,6 +1,5 @@
 import torch as t
 import torch.nn as nn
-from xitorch.interpolate import Interp1D
 import utils
 from operator import itemgetter
 
@@ -164,8 +163,6 @@ class CopNet(nn.Module):
       n_vars = self.d
       z = self.z
       zdot = self.zdot
-      e = self.nonneg(self.w)
-      b = self.b
     else:
       # pick a subset of variables
       n_vars = len(inds)
@@ -197,7 +194,7 @@ class CopNet(nn.Module):
         0, 1) / t.sum(self.nonneg(self.a))
 
   def z_zdot(self, s, g):
-    # returns a list of d functions z_j = g_j^{-1} by using spline interpolation
+    # returns a list of d functions z_j \approx g_j^{-1} by using linear interpolation
     # s: M x d tensor
     # g: M x d tensor such that s = z(g), where g : R -> [0,1]
 
@@ -214,16 +211,12 @@ class CopNet(nn.Module):
     # interpolate \tilde{z}_j and \dot{\tilde{z}}_j, then use the results to construct z_j and \dot{z}_j
     g, _ = t.sort(g, dim=1)
     s, _ = t.sort(s, dim=1)
-    tilde_splines = [
-        Interp1D(g_k, s_k, method='linear', extrap='bound')
-        for g_k, s_k in zip(g, s)
-    ]
+    tilde_splines = [utils.linear_interp(g_k, s_k) for g_k, s_k in zip(g, s)]
 
     dsdg = t.div(s[:, 1:] - s[:, :-1], g[:, 1:] - g[:, :-1])
     mg = (g[:, :-1] + g[:, 1:]) / 2
     tilde_dsplines = [
-        Interp1D(mg_k, ds_k, method='linear', extrap='bound')
-        for mg_k, ds_k in zip(mg, dsdg)
+        utils.linear_interp(mg_k, ds_k) for mg_k, ds_k in zip(mg, dsdg)
     ]
 
     z = [lambda x: utils.invsigmoid(ztilde(x)) for ztilde in tilde_splines]
@@ -242,9 +235,11 @@ class SklarNet(CopNet):
     self.w_m_std = kwargs.pop('w_m_std', 0.1)
     self.b_m_std = kwargs.pop('b_m_std', 0)
     self.a_m_std = kwargs.pop('a_m_std', 0.1)
+    self.marginal_smoothing_factor = kwargs.pop('marginal_smoothing_factor', 4)
+    super(SklarNet, self).__init__(d, **kwargs)
+    self.nonneg_m = t.nn.Softplus(10)
     self.phi_m = t.sigmoid
     self.phi_mdot = lambda x: t.sigmoid(x) * (1 - t.sigmoid(x))
-    super(SklarNet, self).__init__(d, **kwargs)
 
     # initialize parameters for marginal CDFs
     assert self.L_m >= 2
@@ -270,7 +265,7 @@ class SklarNet(CopNet):
     self.b_ms += [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, 1, d)))]
     self.marginal_params = [self.w_ms, self.b_ms, self.a_ms]
 
-  def marginal_CDF(self, X, smoothing_factor=4, inds=...):
+  def marginal_CDF(self, X, inds=...):
     # marginal CDF of samples
     # X : M x d tensor of sample points
     X.requires_grad = True
@@ -283,11 +278,12 @@ class SklarNet(CopNet):
 
     # compute CDF using a feed-forward network
     for w, b, a in zip(sliced_ws, sliced_bs, sliced_as):
-      F = t.einsum('mij,ikj->mkj', F, self.nonneg(w)) + b
+      F = t.einsum('mij,ikj->mkj', F, self.nonneg_m(w)) + b
       F = F + t.tanh(F) * t.tanh(a)
 
-    F = t.einsum('mij,ikj->mkj', F, self.nonneg(sliced_ws[-1])) + sliced_bs[-1]
-    F = self.phi_m(F / smoothing_factor)
+    F = t.einsum('mij,ikj->mkj', F, self.nonneg_m(
+        sliced_ws[-1])) + sliced_bs[-1]
+    F = self.phi_m(F / self.marginal_smoothing_factor)
 
     return t.squeeze(F)
 
