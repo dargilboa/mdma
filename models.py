@@ -27,24 +27,35 @@ class CopNet(nn.Module):
     self.nonneg = t.nn.Softplus()
 
     # initialize trianable parameters
+    a_scale = a_std / t.sqrt(t.Tensor([n]))
     self.w = nn.Parameter(t.Tensor(w_std * t.randn(n, d)))
     self.b = nn.Parameter(t.Tensor(b_std * t.randn(n, d) + b_bias))
-    self.a = nn.Parameter(t.Tensor(a_std * t.randn(n, )))
+    self.a = nn.Parameter(t.Tensor(a_scale * t.randn(n, )))
 
     # initialize z using normal samples
     self.update_zs()
 
-  def update_zs(self, data=None, bp_through_z_update=False):
+  def update_zs(self,
+                data=None,
+                bp_through_z_update=False,
+                fit_marginals=True):
     if data is None:
       # generate data if not provided
       zdata = self.z_update_samples_scale * t.randn(self.z_update_samples,
                                                     self.d)
     else:
-      # assuming data is samples from the hypercube, transforming with z
-      with t.no_grad():
-        zdata = t.stack([
-            z_j(u_j) for z_j, u_j in zip(self.z, data.transpose(0, 1))
-        ]).transpose(0, 1)
+      if fit_marginals:
+        # the data is sampled from a full density
+        zdata = data
+      else:
+        # the data is from the hypercube, transforming with z first
+        with t.no_grad():
+          zdata = t.stack([
+              z_j(u_j) for z_j, u_j in zip(self.z, data.transpose(0, 1))
+          ]).transpose(0, 1)
+
+      # adding noise
+      zdata = zdata + t.randn_like(data) * 0.01 * t.std(data)
 
     if bp_through_z_update:
       g = self.g(zdata)
@@ -243,15 +254,16 @@ class SklarNet(CopNet):
 
     # initialize parameters for marginal CDFs
     assert self.L_m >= 2
+    w_scale = self.w_m_std / t.sqrt(t.Tensor([self.n_m]))
     self.w_ms = t.nn.ParameterList(
-        [nn.Parameter(t.Tensor(self.w_m_std * t.randn(1, self.n_m, d)))])
+        [nn.Parameter(t.Tensor(t.randn(1, self.n_m, d)))])
     self.b_ms = t.nn.ParameterList(
         [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, self.n_m, d)))])
     self.a_ms = t.nn.ParameterList(
         [nn.Parameter(t.Tensor(self.a_m_std * t.randn(1, d)))])
     for _ in range(self.L_m - 2):
       self.w_ms += [
-          nn.Parameter(t.Tensor(self.w_m_std * t.randn(self.n_m, self.n_m, d)))
+          nn.Parameter(t.Tensor(w_scale * t.randn(self.n_m, self.n_m, d)))
       ]
       self.b_ms += [
           nn.Parameter(t.Tensor(self.b_m_std * t.randn(self.n_m, d)))
@@ -259,9 +271,7 @@ class SklarNet(CopNet):
       self.a_ms += [
           nn.Parameter(t.Tensor(self.a_m_std * t.randn(self.n_m, d)))
       ]
-    self.w_ms += [
-        nn.Parameter(t.Tensor(self.w_m_std * t.randn(self.n_m, 1, d)))
-    ]
+    self.w_ms += [nn.Parameter(t.Tensor(w_scale * t.randn(self.n_m, 1, d)))]
     self.b_ms += [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, 1, d)))]
     self.marginal_params = [self.w_ms, self.b_ms, self.a_ms]
 

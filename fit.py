@@ -17,7 +17,7 @@ def fit_neural_copula(data,
                       print_every=20,
                       checkpoint_every=100,
                       val_every=20,
-                      max_iters=-1):
+                      max_iters=float("inf")):
   # h: dictionary of hyperparameters
   # default hyperparameters
   default_h = {
@@ -34,14 +34,15 @@ def fit_neural_copula(data,
       'n_epochs': 10,
       'batch_size': 100,
       'lambda_l2': 1e-4,
-      'lambda_hess_full': 0,
-      'lambda_hess_diag': 0,
-      'lambda_ent': 0,
-      'clip_max_norm': 0,
+      'lambda_l2_m': 0,
+      # 'lambda_hess_full': 0,
+      # 'lambda_hess_diag': 0,
+      # 'lambda_ent': 0,
+      #'clip_max_norm': 0,
       'decrease_lr_time': 1,
       'decrease_lr_factor': 0.1,
-      'update_z_every': 1,
-      'bp_through_z_update': False,
+      #'update_z_every': 1,
+      #'bp_through_z_update': False,
       'opt': 'adam',
       'lr': 5e-3,
   }
@@ -69,12 +70,7 @@ def fit_neural_copula(data,
                           z_update_samples=h['batch_size'])
 
   train_data, val_data = data
-
-  with t.no_grad():
-    if h['lambda_hess_diag'] > 0:
-      tr_hess_sq_0 = t.mean(model.diag_hess(train_data)**2)
-    if h['lambda_hess_full'] > 0:
-      hess_norm_sq_0 = model.hess(train_data).norm()**2
+  tr_hess_sq_0, hess_norm_sq_0 = init_regularizers(model, h, train_data)
 
   # optimizer
   if h['opt'] == 'adam':
@@ -84,15 +80,16 @@ def fit_neural_copula(data,
   else:
     raise NameError
   optimizer = opt_type(model.parameters(), lr=h['lr'])
+  n_iters = h['n_epochs'] * h['M'] // h['batch_size']
   scheduler = t.optim.lr_scheduler.StepLR(optimizer,
                                           step_size=int(h['decrease_lr_time'] *
-                                                        h['n_epochs']),
+                                                        n_iters),
                                           gamma=h['decrease_lr_factor'])
 
   # set up data loader
   if type(train_data) is not t.Tensor:
-    train_data = t.tensor(train_data)
-    val_data = t.tensor(val_data)
+    train_data = t.Tensor(train_data)
+    val_data = t.Tensor(val_data)
   train_dataset = TensorDataset(train_data)
   train_loader = DataLoader(train_dataset, batch_size=h['batch_size'])
   val_dataset = TensorDataset(val_data)
@@ -110,7 +107,11 @@ def fit_neural_copula(data,
   val_nll = eval_val_nll(model, val_loader)
   best_val_nll = val_nll
   best_val_nll_model = copy.deepcopy(model)
+  clip_max_norm = 0
+  update_z_every = 1
+  bp_through_z_update = False
   print(h)
+  print(f'Running {n_iters} iterations.')
   for epoch in range(h['n_epochs']):
     for batch_idx, batch in enumerate(train_loader):
       # update parameters
@@ -119,34 +120,22 @@ def fit_neural_copula(data,
       nll = model.nll(batch_data)
       obj = nll
 
-      # regularization
-      L2 = (t.norm(model.w)**2 + t.norm(model.a)**2 + t.norm(model.b)**2)
-      obj += h['lambda_l2'] * L2
-
-      if h['lambda_ent'] > 0:
-        samples = model.c_sample(h['M'], n_bisect_iter=25)
-        ent = model.nll(samples)
-        obj = obj - h['lambda_ent'] * ent
-
-      if h['lambda_hess_diag'] > 0:
-        tr_hess_sq = t.mean(model.diag_hess(batch_data)**2) / tr_hess_sq_0
-        obj += h['lambda_hess_diag'] * tr_hess_sq
-
-      if h['lambda_hess_full'] > 0:
-        hess_norm_sq = model.hess(batch_data).norm()**2 / hess_norm_sq_0
-        obj += h['lambda_hess_full'] * hess_norm_sq
+      obj = add_regularization(model, obj, h, batch_data, tr_hess_sq_0,
+                               hess_norm_sq_0)
 
       obj.backward()
 
-      if h['clip_max_norm'] > 0:
-        t.nn.utils.clip_grad_value_(model.parameters(), h['clip_max_norm'])
+      if clip_max_norm > 0:
+        t.nn.utils.clip_grad_value_(model.parameters(), clip_max_norm)
 
       optimizer.step()
       scheduler.step()
 
       # update z approximation, can also take the data as input
-      if iter % h['update_z_every'] == 0:
-        model.update_zs(bp_through_z_update=h['bp_through_z_update'])
+      if iter % update_z_every == 0:
+        model.update_zs(data=batch_data,
+                        bp_through_z_update=bp_through_z_update,
+                        fit_marginals=h['fit_marginals'])
 
       nlls.append(nll.cpu().detach().numpy())
 
@@ -195,3 +184,42 @@ def eval_val_nll(model, val_loader):
     batch_data = batch[0]
     val_nll += model.nll(batch_data)
   return val_nll / (batch_idx + 1)
+
+
+def add_regularization(model, obj, h, batch_data, tr_hess_sq_0,
+                       hess_norm_sq_0):
+  # add regularization
+  L2 = (t.norm(model.w)**2 + t.norm(model.a)**2 + t.norm(model.b)**2)
+  obj += h['lambda_l2'] * L2
+
+  if h['fit_marginals']:
+    L2_m = sum([t.norm(w) ** 2 for w in model.w_ms]) + \
+           sum([t.norm(a) ** 2 for a in model.a_ms]) + \
+           sum([t.norm(b) ** 2 for b in model.b_ms])
+    obj += h['lambda_l2_m'] * L2_m
+
+  # if h['lambda_ent'] > 0:
+  #   samples = model.c_sample(h['M'], n_bisect_iter=25)
+  #   ent = model.nll(samples)
+  #   obj = obj - h['lambda_ent'] * ent
+  #
+  # if h['lambda_hess_diag'] > 0:
+  #   tr_hess_sq = t.mean(model.diag_hess(batch_data)**2) / tr_hess_sq_0
+  #   obj += h['lambda_hess_diag'] * tr_hess_sq
+  #
+  # if h['lambda_hess_full'] > 0:
+  #   hess_norm_sq = model.hess(batch_data).norm()**2 / hess_norm_sq_0
+  #   obj += h['lambda_hess_full'] * hess_norm_sq
+
+  return obj
+
+
+def init_regularizers(model, h, train_data):
+  tr_hess_sq_0 = None
+  hess_norm_sq_0 = None
+  # with t.no_grad():
+  #   if h['lambda_hess_diag'] > 0:
+  #     tr_hess_sq_0 = t.mean(model.diag_hess(train_data)**2)
+  #   if h['lambda_hess_full'] > 0:
+  #     hess_norm_sq_0 = model.hess(train_data).norm()**2
+  return tr_hess_sq_0, hess_norm_sq_0
