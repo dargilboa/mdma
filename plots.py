@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 import datetime
 import utils
+import pprint
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
@@ -71,7 +72,7 @@ def plot_contours_single(
   y = np.linspace(eps, 1 - eps, grid_res)
   grid = np.meshgrid(x, y)
   flat_grid = t.tensor([g.flatten() for g in grid]).transpose(0, 1)
-  if copula_type is not 'data':
+  if copula_type != 'data':
     true_copula_log_density = utils.copula_log_density(
         flat_grid.cpu().detach().numpy(),
         copula_type=copula_type,
@@ -82,8 +83,6 @@ def plot_contours_single(
     # include the marginal densities
     if marginal_type == 'gaussian':
       iX, iY = norm.ppf(grid)
-      true_log_density = true_copula_log_density + norm.logpdf(
-          iX) + norm.logpdf(iY)
       mus, sigmas = marginal_params
 
       # modify iX, iY to match the marginals
@@ -116,7 +115,7 @@ def plot_contours_single(
         iX) + norm.logpdf(iY)
 
   # plot the true density contours or ground truth samples
-  if copula_type is not 'data':
+  if copula_type != 'data':
     true_log_density = true_copula_log_density + norm.logpdf(iX) + norm.logpdf(
         iY)
     axs.contour(iX, iY, true_log_density, contours, colors=colors_k)
@@ -137,7 +136,7 @@ def plot_contours_ext(outs,
                       data=None,
                       add_nll_plot=True):
 
-  d = outs['h']['d']
+  d = outs['h'].d
   if final_only:
     models = [[len(outs['nlls']) - 1, outs['model']]]
   else:
@@ -201,8 +200,10 @@ def plot_contours_ext(outs,
       plot_nll(axs[-1, ind_nll_plot], outs, alpha, iter)
 
     axs[-1, 0].text(
-        0, 0, '\n'.join(
-            [key + ' : ' + str(value) for key, value in outs['h'].items()]))
+        0, 0, '\n'.join([
+            key + ' : ' + str(value)
+            for key, value in outs['h'].__dict__.items()
+        ]))
     nll_val = outs['nlls'][iter]
     axs[-1,
         0].set_xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") +
@@ -237,9 +238,10 @@ def plot_heatmap(model, outs, xlim=[-1, 1], ylim=[-1, 1]):
   plot_nll(axs[1], outs)
 
   axs[-1].text(
-      0, 0,
-      '\n'.join([key + ' : ' + str(value)
-                 for key, value in outs['h'].items()]))
+      0, 0, '\n'.join([
+          key + ' : ' + str(value)
+          for key, value in outs['h'].__dict__.items()
+      ]))
   nll_val = outs['nlls'][-1]
   axs[-1].set_xlabel(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") +
                      ',  final nll: {:.3f}'.format(nll_val))
@@ -249,7 +251,7 @@ def plot_heatmap(model, outs, xlim=[-1, 1], ylim=[-1, 1]):
 
 def plot_copula_density(
     model,
-    data,
+    data=None,
     eps=1e-3,
     grid_res=200,
 ):
@@ -263,5 +265,6 @@ def plot_copula_density(
   contours = [-4.5, -3.4, -2.8, -2.2, -1.6]
   colors_r = ['r'] * len(contours)
   plt.contour(iX, iY, model_log_copula_density, contours, colors=colors_r)
-  plt.scatter(data[:, 0], data[:, 1])
+  if data is not None:
+    plt.scatter(data[:, 0], data[:, 1])
   plt.show()

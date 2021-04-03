@@ -244,6 +244,7 @@ class SklarNet(CopNet):
     self.L_m = kwargs.pop('L_m', 4)
     self.n_m = kwargs.pop('n_m', 5)
     self.w_m_std = kwargs.pop('w_m_std', 0.1)
+    self.w_m_bias = kwargs.pop('w_m_bias', 0)
     self.b_m_std = kwargs.pop('b_m_std', 0)
     self.a_m_std = kwargs.pop('a_m_std', 0.1)
     self.marginal_smoothing_factor = kwargs.pop('marginal_smoothing_factor', 4)
@@ -256,14 +257,16 @@ class SklarNet(CopNet):
     assert self.L_m >= 2
     w_scale = self.w_m_std / t.sqrt(t.Tensor([self.n_m]))
     self.w_ms = t.nn.ParameterList(
-        [nn.Parameter(t.Tensor(t.randn(1, self.n_m, d)))])
+        [nn.Parameter(t.Tensor(t.randn(1, self.n_m, d) + self.w_m_bias))])
     self.b_ms = t.nn.ParameterList(
         [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, self.n_m, d)))])
     self.a_ms = t.nn.ParameterList(
         [nn.Parameter(t.Tensor(self.a_m_std * t.randn(1, d)))])
     for _ in range(self.L_m - 2):
       self.w_ms += [
-          nn.Parameter(t.Tensor(w_scale * t.randn(self.n_m, self.n_m, d)))
+          nn.Parameter(
+              t.Tensor(w_scale * t.randn(self.n_m, self.n_m, d) +
+                       self.w_m_bias))
       ]
       self.b_ms += [
           nn.Parameter(t.Tensor(self.b_m_std * t.randn(self.n_m, d)))
@@ -271,9 +274,17 @@ class SklarNet(CopNet):
       self.a_ms += [
           nn.Parameter(t.Tensor(self.a_m_std * t.randn(self.n_m, d)))
       ]
-    self.w_ms += [nn.Parameter(t.Tensor(w_scale * t.randn(self.n_m, 1, d)))]
+    self.w_ms += [
+        nn.Parameter(
+            t.Tensor(w_scale * t.randn(self.n_m, 1, d) + self.w_m_bias))
+    ]
     self.b_ms += [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, 1, d)))]
     self.marginal_params = [self.w_ms, self.b_ms, self.a_ms]
+    self.sf = t.Tensor([self.marginal_smoothing_factor] * self.d)
+
+  def set_marginal_scales(self, data):
+    # scale the marginals by the std of the marginal data
+    self.sf = t.std(t.Tensor(data), dim=0)
 
   def marginal_CDF(self, X, inds=...):
     # marginal CDF of samples
@@ -293,15 +304,15 @@ class SklarNet(CopNet):
 
     F = t.einsum('mij,ikj->mkj', F, self.nonneg_m(
         sliced_ws[-1])) + sliced_bs[-1]
-    F = self.phi_m(F / self.marginal_smoothing_factor)
+    F = self.phi_m(F / self.sf)
 
     return t.squeeze(F)
 
   def marginal_likelihood(self, X, inds=...):
+    # compute all marginal likelihoods f(X)
     # X : M x d tensor of sample points
     # inds : list of indices to restrict to (if interested in a subset of variables)
 
-    # compute the marginal CDF F(X)
     F = self.marginal_CDF(X, inds=inds)
     F = t.sum(F)
     f = t.autograd.grad(F, X, create_graph=True)[0]
@@ -311,6 +322,7 @@ class SklarNet(CopNet):
     # full density (copula + marginals)
     # X : M x d tensor of sample points
     # inds : list of indices to restrict to (if interested in a subset of variables)
+    # returns M dimensional vector of log densities
     F = self.marginal_CDF(X, inds=inds)
     log_copula_density = self.log_copula_density(F, inds=inds)
     log_marginal_density = t.sum(t.log(self.marginal_likelihood(X, inds=inds)),
@@ -322,11 +334,7 @@ class SklarNet(CopNet):
     # negative log likelihood (copula + marginals, average over datapoints)
     # X : M x d tensor of sample points
 
-    X = t.Tensor(X)
-    M = X.shape[0]
-    F = self.marginal_CDF(X)
-    return - t.sum(t.log(self.marginal_likelihood(X))) / M \
-           + super(SklarNet, self).nll(F)
+    return -t.mean(self.log_density(X))
 
   def sample(self, M, n_bisect_iter=35):
     # return M x d tensor of samples from the full density

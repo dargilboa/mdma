@@ -15,52 +15,18 @@ else:
   print('No GPU found')
   t.set_default_tensor_type('torch.DoubleTensor')
 
-#%% fit copula density
-d = 5
-h = {
-    'M': 2000,
-    'batch_size': 2000,
-    'M_val': 500,
-    'd': d,
-    'n_epochs': 100,
-    'n': 100,
-    'lambda_l2': 1e-5,
-    'lambda_hess_diag': 0,
-    'lambda_hess_full': 0,
-    #'opt': 'sgd',
-    'lr': 5e-3,
-}
-
-np.random.seed(1)
-t.manual_seed(1)
-
-copula_type = 'gumbel'
-copula_params = 1.67
-data = utils.generate_c_data(
-    h['d'],
-    h['M'],
-    h['M_val'],
-    copula_params=copula_params,
-    copula_type=copula_type,
-)
-outs = fit.fit_neural_copula(data, h)
-plots.plot_contours_ext(outs,
-                        copula_params=copula_params,
-                        copula_type=copula_type)
-
 #%% fit full density (copula + marginals)
 d = 3
-h = {
-    'M': 2000,
-    'M_val': 500,
-    'd': d,
-    'n_epochs': 1000,
-    'batch_size': 2000,
-    'n': 100,
-    'lambda_l2': 1e-5,
-    'lr': 5e-3,
-    'fit_marginals': True,
-}
+h = fit.get_default_h()
+h.M = 2000
+h.M_val = 500
+h.d = d
+h.n_epochs = 1000
+h.batch_size = 2000
+h.n = 100
+h.lambda_l2 = 1e-5
+h.lr = 5e-3
+h.fit_marginals = True
 
 np.random.seed(1)
 t.manual_seed(1)
@@ -69,9 +35,9 @@ copula_type = 'gumbel'
 copula_params = 1.67
 marginal_type = 'gaussian'
 marginal_params = [np.array([0] * d), np.array([1] * d)]
-data = utils.generate_data(h['d'],
-                           h['M'],
-                           h['M_val'],
+data = utils.generate_data(h.d,
+                           h.M,
+                           h.M_val,
                            copula_params=copula_params,
                            marginal_params=marginal_params,
                            copula_type=copula_type,
@@ -91,19 +57,15 @@ plots.plot_contours_ext(
 
 #%% fit copula density
 d = 5
-h = {
-    'M': 2000,
-    'batch_size': 2000,
-    'M_val': 500,
-    'd': d,
-    'n_epochs': 600,
-    'n': 100,
-    'lambda_l2': 1e-5,
-    'lambda_hess_diag': 0,
-    'lambda_hess_full': 0,
-    #'opt': 'sgd',
-    'lr': 5e-3,
-}
+h = fit.get_default_h()
+h.M = 2000
+h.batch_size = 2000
+h.M_val = 500
+h.d = d
+h.n_epochs = 600
+h.n = 100
+h.lambda_l2 = 1e-5
+h.lr = 5e-3
 
 np.random.seed(1)
 t.manual_seed(1)
@@ -111,9 +73,9 @@ t.manual_seed(1)
 copula_type = 'gumbel'
 copula_params = 1.67
 data = utils.generate_c_data(
-    h['d'],
-    h['M'],
-    h['M_val'],
+    h.d,
+    h.M,
+    h.M_val,
     copula_params=copula_params,
     copula_type=copula_type,
 )
@@ -168,20 +130,19 @@ for r in range(n_reps):
     d = cop['d']
     print(cop)
     for nM, M in enumerate(Ms):
-      h = {
-          'M': M,
-          'M_val': 500,
-          'd': d,
-          'n_iters': n_iters,
-          'n': 100,
-          'lambda_l2': 1e-5,
-          'lambda_hess_diag': 0,
-          'checkpoint_every': n_iters,
-      }
+      h = fit.get_default_h()
+      h.M = M
+      h.M_val = 500
+      h.d = d
+      h.n_iters = n_iters
+      h.n = 100
+      h.lambda_l2 = 1e-5
+      h.lambda_hess_diag = 0
+      h.checkpoint_every = n_iters
       P = np.eye(d) * (1 - rho) + np.ones((d, d)) * rho
       data = utils.generate_c_data(d,
                                    M,
-                                   h['M_val'],
+                                   h.M_val,
                                    copula_type=cop['type'],
                                    copula_params=cop['copula_params'])
       outs = fit.fit_neural_copula(data, h)
