@@ -43,7 +43,7 @@ data = utils.generate_data(h.d,
                            copula_type=copula_type,
                            marginal_type=marginal_type)
 start_time = time.time()
-outs = fit.fit_neural_copula(data, h)
+outs = fit.fit_neural_copula(h, data)
 run_time = (time.time() - start_time) / 60
 print(f'Runtime: {run_time:.3g} mins')
 plots.plot_contours_ext(
@@ -66,6 +66,7 @@ h.n_epochs = 600
 h.n = 100
 h.lambda_l2 = 1e-5
 h.lr = 5e-3
+h.fit_marginals = False
 
 np.random.seed(1)
 t.manual_seed(1)
@@ -79,7 +80,7 @@ data = utils.generate_c_data(
     copula_params=copula_params,
     copula_type=copula_type,
 )
-outs = fit.fit_neural_copula(data, h)
+outs = fit.fit_neural_copula(h, data)
 plots.plot_contours_ext(outs,
                         copula_params=copula_params,
                         copula_type=copula_type)
@@ -139,13 +140,14 @@ for r in range(n_reps):
       h.lambda_l2 = 1e-5
       h.lambda_hess_diag = 0
       h.checkpoint_every = n_iters
+      h.fit_marginals = False
       P = np.eye(d) * (1 - rho) + np.ones((d, d)) * rho
       data = utils.generate_c_data(d,
                                    M,
                                    h.M_val,
                                    copula_type=cop['type'],
                                    copula_params=cop['copula_params'])
-      outs = fit.fit_neural_copula(data, h)
+      outs = fit.fit_neural_copula(h, data)
       neural_fit = outs['best_val_nll_model']
       vine_fit = pv.Vinecop(data[0].cpu().detach().numpy(),
                             controls=vine_controls)

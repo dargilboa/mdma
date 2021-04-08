@@ -222,9 +222,8 @@ def plot_nll(ax, outs, alpha=1, iter_to_plot=-1):
              alpha=alpha)
 
 
-def plot_heatmap(model, outs, xlim=[-1, 1], ylim=[-1, 1]):
+def plot_heatmap(model, outs, xlim=[-1, 1], ylim=[-1, 1], grid_res=100):
   fig, axs = plt.subplots(1, 3, figsize=(9, 3))
-  grid_res = 100
   x_coords = np.linspace(xlim[0], xlim[1], grid_res)
   y_coords = np.linspace(ylim[0], ylim[1], grid_res)
   iX, iY = np.meshgrid(x_coords, y_coords)
@@ -267,4 +266,24 @@ def plot_copula_density(
   plt.contour(iX, iY, model_log_copula_density, contours, colors=colors_r)
   if data is not None:
     plt.scatter(data[:, 0], data[:, 1])
+  plt.show()
+
+
+def plot_all_heatmaps(outs, xlim=[-1, 1], ylim=[-1, 1]):
+  fig, axs = plt.subplots(1,
+                          len(outs['checkpoints']),
+                          figsize=(3 * len(outs['checkpoints']), 3))
+  grid_res = 100
+  x_coords = np.linspace(xlim[0], xlim[1], grid_res)
+  y_coords = np.linspace(ylim[0], ylim[1], grid_res)
+  iX, iY = np.meshgrid(x_coords, y_coords)
+  flat_grid_on_R = t.tensor([g.flatten() for g in [iX, iY]]).transpose(0, 1)
+  for ax, model, iter in zip(axs, outs['checkpoints'],
+                             outs['checkpoint_iters']):
+    model_log_density = model.log_density(
+        flat_grid_on_R).cpu().detach().numpy().reshape((grid_res, grid_res))
+    ax.imshow(np.exp(model_log_density),
+              extent=(xlim[0], xlim[1], ylim[0], ylim[1]))
+    ax.set_title(iter)
+
   plt.show()

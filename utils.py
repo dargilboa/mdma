@@ -187,3 +187,40 @@ def random_correlation_matrix(d):
 
 def normalize(M):
   return (M - np.mean(M, axis=0)) / np.std(M, axis=0)
+
+
+def load_dataset(args):
+  if args.dataset == 'gas':
+    dataset = GAS('data/gas/ethylene_CO.pickle')
+  elif args.dataset == 'bsds300':
+    dataset = BSDS300('data/BSDS300/BSDS300.hdf5')
+  elif args.dataset == 'hepmass':
+    dataset = HEPMASS('data/hepmass')
+  elif args.dataset == 'miniboone':
+    dataset = MINIBOONE('data/miniboone/data.npy')
+  elif args.dataset == 'power':
+    dataset = POWER('data/power/data.npy')
+  else:
+    raise RuntimeError()
+
+  dataset_train = t.utils.data.TensorDataset(
+      t.from_numpy(dataset.trn.x).float().to(args.device))
+  data_loader_train = t.utils.data.DataLoader(dataset_train,
+                                              batch_size=args.batch_dim,
+                                              shuffle=True)
+
+  dataset_valid = t.utils.data.TensorDataset(
+      t.from_numpy(dataset.val.x).float().to(args.device))
+  data_loader_valid = t.utils.data.DataLoader(dataset_valid,
+                                              batch_size=args.batch_dim,
+                                              shuffle=False)
+
+  dataset_test = t.utils.data.TensorDataset(
+      t.from_numpy(dataset.tst.x).float().to(args.device))
+  data_loader_test = t.utils.data.DataLoader(dataset_test,
+                                             batch_size=args.batch_dim,
+                                             shuffle=False)
+
+  args.d = dataset.n_dims
+
+  return data_loader_train, data_loader_valid, data_loader_test

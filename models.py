@@ -31,6 +31,7 @@ class CopNet(nn.Module):
     self.w = nn.Parameter(t.Tensor(w_std * t.randn(n, d)))
     self.b = nn.Parameter(t.Tensor(b_std * t.randn(n, d) + b_bias))
     self.a = nn.Parameter(t.Tensor(a_scale * t.randn(n, )))
+    self.copula_params = [self.w, self.b, self.a]
 
     # initialize z using normal samples
     self.update_zs()
@@ -188,11 +189,11 @@ class CopNet(nn.Module):
         [zdot_j(u_j) for zdot_j, u_j in zip(zdot, u.transpose(0, 1))])
     A = t.einsum('ij,jm->ijm', e, zu) + b.unsqueeze(-1).expand(
         self.n, n_vars, M)
-    AA = self.phidot(A) * e.unsqueeze(-1).expand(
+    A = self.phidot(A) * e.unsqueeze(-1).expand(
         self.n, n_vars, M) * zdu.unsqueeze(0).expand(self.n, n_vars, M)
-    AAA = t.prod(AA, 1)  # n x M
-    log_copula_density = t.log(t.einsum(
-        'i,im->m', self.nonneg(self.a), AAA)) - t.log(
+    AA = t.prod(A, 1)  # n x M
+    log_copula_density = t.log(
+        t.einsum('i,im->m', self.nonneg(self.a), AA)) - t.log(
             t.sum(self.nonneg(self.a))).unsqueeze(-1).expand(M)
     return log_copula_density
 
@@ -296,6 +297,7 @@ class SklarNet(CopNet):
     sliced_ws = [w[..., inds] for w in self.w_ms]
     sliced_bs = [b[..., inds] for b in self.b_ms]
     sliced_as = [a[..., inds] for a in self.a_ms]
+    sliced_sf = self.sf[inds]
 
     # compute CDF using a feed-forward network
     for w, b, a in zip(sliced_ws, sliced_bs, sliced_as):
@@ -304,7 +306,7 @@ class SklarNet(CopNet):
 
     F = t.einsum('mij,ikj->mkj', F, self.nonneg_m(
         sliced_ws[-1])) + sliced_bs[-1]
-    F = self.phi_m(F / self.sf)
+    F = self.phi_m(F / sliced_sf)
 
     return t.squeeze(F)
 
@@ -317,6 +319,11 @@ class SklarNet(CopNet):
     F = t.sum(F)
     f = t.autograd.grad(F, X, create_graph=True)[0]
     return f
+
+  def log_marginal_density(self, X, inds=...):
+    log_marginal_density = t.sum(t.log(self.marginal_likelihood(X, inds=inds)),
+                                 dim=1)
+    return log_marginal_density
 
   def log_density(self, X, inds=...):
     # full density (copula + marginals)
@@ -335,6 +342,12 @@ class SklarNet(CopNet):
     # X : M x d tensor of sample points
 
     return -t.mean(self.log_density(X))
+
+  def marginal_nll(self, X):
+    # negative log marginal likelihood (copula + marginals, average over datapoints)
+    # X : M x d tensor of sample points
+
+    return -t.mean(self.log_marginal_density(X))
 
   def sample(self, M, n_bisect_iter=35):
     # return M x d tensor of samples from the full density

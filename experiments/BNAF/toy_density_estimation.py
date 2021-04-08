@@ -34,7 +34,7 @@ n_iters = 500
 d = 2
 dataset = '2spirals'
 batch_size = 2000
-n_iters = 1000
+n_iters = 4000
 M = n_iters * batch_size
 
 h = fit.get_default_h()
@@ -44,10 +44,11 @@ h.M_val = 500
 h.d = d
 h.n_epochs = 1
 h.batch_size = batch_size
-h.n = 100
+h.n = 10000
 h.lambda_l2 = 1e-5
 h.lambda_l2_m = 0  #1e-5
-h.lr = 5e-3
+h.lr = 5e-2
+h.lr_m = 1e-1
 h.fit_marginals = True
 # marginal params
 h.n_m = 10
@@ -58,13 +59,17 @@ h.a_m_std = 0.01
 h.b_m_std = 0
 h.marginal_smoothing_factor = 4
 h.adaptive_marginal_scale = False
+h.fit_marginals_first = False
+h.n_marginal_iters = 1000
+h.alt_opt = True
+h.alternate_every = 2000
 
 np.random.seed(1)
 t.manual_seed(1)
 
 data = [sample2d(h.dataset, h.M), sample2d(h.dataset, h.M_val)]
 start_time = time.time()
-outs = fit.fit_neural_copula(data, h)
+outs = fit.fit_neural_copula(h, data, checkpoint_every=500)
 run_time = (time.time() - start_time) / 60
 print(f'Runtime: {run_time:.3g} mins')
 
@@ -76,7 +81,10 @@ plots.plot_contours_ext(outs,
                         add_nll_plot=False,
                         final_only=True)
 
-plots.plot_heatmap(outs['checkpoints'][-1], outs, xlim=[-4, 4], ylim=[-4, 4])
+plots.plot_heatmap(outs['model'], outs, xlim=[-4, 4], ylim=[-4, 4])
+
+for model in outs['checkpoints']:
+  plots.plot_heatmap(model, outs, xlim=[-4, 4], ylim=[-4, 4])
 
 #%% plot marginal density
 x_rng = 5
@@ -117,7 +125,7 @@ data[0] = (data[0] + 4) / 8
 data[1] = (data[1] + 4) / 8
 
 start_time = time.time()
-outs = fit.fit_neural_copula(data, h)
+outs = fit.fit_neural_copula(h, data)
 run_time = (time.time() - start_time) / 60
 print(f'Runtime: {run_time:.3g} mins')
 
