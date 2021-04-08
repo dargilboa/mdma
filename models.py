@@ -262,7 +262,7 @@ class SklarNet(CopNet):
     self.b_ms = t.nn.ParameterList(
         [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, self.n_m, d)))])
     self.a_ms = t.nn.ParameterList(
-        [nn.Parameter(t.Tensor(self.a_m_std * t.randn(1, d)))])
+        [nn.Parameter(t.Tensor(self.a_m_std * t.randn(1, self.n_m, d)))])
     for _ in range(self.L_m - 2):
       self.w_ms += [
           nn.Parameter(
