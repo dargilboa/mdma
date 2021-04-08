@@ -297,7 +297,7 @@ class SklarNet(CopNet):
     sliced_ws = [w[..., inds] for w in self.w_ms]
     sliced_bs = [b[..., inds] for b in self.b_ms]
     sliced_as = [a[..., inds] for a in self.a_ms]
-    sliced_sf = self.sf[inds]
+    
 
     # compute CDF using a feed-forward network
     for w, b, a in zip(sliced_ws, sliced_bs, sliced_as):
@@ -306,7 +306,7 @@ class SklarNet(CopNet):
 
     F = t.einsum('mij,ikj->mkj', F, self.nonneg_m(
         sliced_ws[-1])) + sliced_bs[-1]
-    F = self.phi_m(F / sliced_sf)
+    F = self.phi_m(F)
 
     return t.squeeze(F)
 
