@@ -258,7 +258,7 @@ class SklarNet(CopNet):
     assert self.L_m >= 2
     w_scale = self.w_m_std / t.sqrt(t.Tensor([self.n_m]))
     self.w_ms = t.nn.ParameterList(
-        [nn.Parameter(t.Tensor(t.randn(1, self.n_m, d) + self.w_m_bias))])
+        [nn.Parameter(t.Tensor(self.w_m_std * t.randn(1, self.n_m, d) + self.w_m_bias))])
     self.b_ms = t.nn.ParameterList(
         [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, self.n_m, d)))])
     self.a_ms = t.nn.ParameterList(
