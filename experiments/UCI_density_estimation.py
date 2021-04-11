@@ -2,6 +2,8 @@
 import fit
 import torch as t
 import matplotlib.pyplot as plt
+import numpy as np
+import utils
 
 from experiments.BNAF.data.gas import GAS
 from experiments.BNAF.data.bsds300 import BSDS300
@@ -9,9 +11,12 @@ from experiments.BNAF.data.hepmass import HEPMASS
 from experiments.BNAF.data.miniboone import MINIBOONE
 from experiments.BNAF.data.power import POWER
 
+np.random.seed(0)
+t.manual_seed(0)
+
 
 def load_dataset(h):
-  data_dir = 'data'
+  data_dir = 'BNAF/data'
   if h.dataset == 'gas':
     dataset = GAS(data_dir + '/gas/ethylene_CO.pickle')
   elif h.dataset == 'bsds300':
@@ -50,27 +55,23 @@ def load_dataset(h):
 #%%
 h = fit.get_default_h()
 h.dataset = 'power'
-h.batch_size = 1000
-h.n_epochs = 5
-h.lr_m = 5e-4
-h.lr = 5e-3
-h.fit_marginals_first = True
-h.n_marginal_iters = 2000
+h.batch_size = 2000
+h.n_epochs = 4
+h.lr = 1e-2
 
-train_data, val_data, _ = load_dataset(h)
-data = [train_data, val_data]
+data = load_dataset(h)
 
 #%%
 #!pip install pytorch_memlab
 #from pytorch_memlab import MemReporter
 #from pytorch_memlab import LineProfiler
 
-#with LineProfiler(fit.fit_neural_copula) as prof:
+#with LineProfiler(fit.fit_neural_copula, fit.eval_val_nll) as prof:
 outs = fit.fit_neural_copula(
     h,
     data,
-    val_every=1000,
-    checkpoint_every=500,
+    val_every=100,
+    checkpoint_every=4000,
 )
 
 #%%

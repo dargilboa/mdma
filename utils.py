@@ -3,6 +3,7 @@ import numpy as np
 from scipy.stats import norm
 from torch.distributions.normal import Normal
 from copulae import GumbelCopula
+from torch.utils.data import TensorDataset, DataLoader
 
 
 class linear_interp():
@@ -224,3 +225,20 @@ def load_dataset(args):
   args.d = dataset.n_dims
 
   return data_loader_train, data_loader_valid, data_loader_test
+
+
+def create_loaders(data, batch_size):
+  # create dataloaders from list of data arrays or tensors
+  train_data, val_data, test_data = data
+  if type(train_data) is not t.Tensor:
+    train_data = t.Tensor(train_data)
+    val_data = t.Tensor(val_data)
+    test_data = t.Tensor(test_data)
+  train_dataset = TensorDataset(train_data)
+  train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+  val_dataset = TensorDataset(val_data)
+  val_loader = DataLoader(val_dataset, batch_size=batch_size)
+  test_dataset = TensorDataset(test_data)
+  test_loader = DataLoader(test_dataset, batch_size=batch_size)
+
+  return train_loader, val_loader, test_loader

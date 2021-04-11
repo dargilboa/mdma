@@ -98,7 +98,8 @@ def plot_contours_single(
       raise Exception('Unknown marginal type')
 
     # evaluate the density of the model, assuming it contains marginals
-    flat_grid_on_R = t.tensor([g.flatten() for g in [iX, iY]]).transpose(0, 1)
+    flat_grid_on_R = t.tensor([g.flatten()
+                               for g in [iX, iY]]).transpose(0, 1).float()
     model_log_density = model.log_density(
         flat_grid_on_R, inds=[i, j]).cpu().detach().numpy().reshape(
             (grid_res, grid_res))
@@ -227,9 +228,14 @@ def plot_heatmap(model, outs, xlim=[-1, 1], ylim=[-1, 1], grid_res=100):
   x_coords = np.linspace(xlim[0], xlim[1], grid_res)
   y_coords = np.linspace(ylim[0], ylim[1], grid_res)
   iX, iY = np.meshgrid(x_coords, y_coords)
-  flat_grid_on_R = t.tensor([g.flatten() for g in [iX, iY]]).transpose(0, 1)
-  model_log_density = model.log_density(
-      flat_grid_on_R).cpu().detach().numpy().reshape((grid_res, grid_res))
+  flat_grid_on_R = t.tensor([g.flatten()
+                             for g in [iX, iY]]).transpose(0, 1).float()
+  model_log_density = []
+  for grid_part in flat_grid_on_R.split(outs['h'].batch_size):
+    model_log_density += [model.log_density(grid_part).cpu().detach().numpy()]
+  model_log_density = np.concatenate(model_log_density).reshape(
+      (grid_res, grid_res))
+  model_log_density = model_log_density[:, ::-1]
   fplot = axs[0].imshow(np.exp(model_log_density),
                         extent=(xlim[0], xlim[1], ylim[0], ylim[1]))
   #fig.colorbar(fplot, ax=axs[0])
@@ -277,7 +283,8 @@ def plot_all_heatmaps(outs, xlim=[-1, 1], ylim=[-1, 1]):
   x_coords = np.linspace(xlim[0], xlim[1], grid_res)
   y_coords = np.linspace(ylim[0], ylim[1], grid_res)
   iX, iY = np.meshgrid(x_coords, y_coords)
-  flat_grid_on_R = t.tensor([g.flatten() for g in [iX, iY]]).transpose(0, 1)
+  flat_grid_on_R = t.tensor([g.flatten()
+                             for g in [iX, iY]]).transpose(0, 1).float()
   for ax, model, iter in zip(axs, outs['checkpoints'],
                              outs['checkpoint_iters']):
     model_log_density = model.log_density(

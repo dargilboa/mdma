@@ -4,7 +4,189 @@ import utils
 from operator import itemgetter
 
 
-# %%
+class CDFNet(nn.Module):
+  def __init__(
+      self,
+      d,
+      n=100,
+      L=4,
+      m=5,
+      w_std=0.1,
+      b_bias=0,
+      b_std=0.1,
+      a_std=1.0,
+  ):
+    super(CDFNet, self).__init__()
+    self.d = d
+    self.n = n
+    self.m = m
+    self.L = L
+    self.phi = t.sigmoid
+    self.phidot = lambda x: t.sigmoid(x) * (1 - t.sigmoid(x))
+    self.nonneg = t.nn.Softplus()
+    self.nonneg_m = t.nn.Softplus(10)
+    self.w_std = w_std
+    self.a_std = a_std
+    self.b_std = b_std
+    self.b_bias = b_bias
+
+    # initialize parameters for marginal CDFs
+    assert self.L >= 2
+    w_scale = self.w_std / t.sqrt(t.Tensor([self.m]))
+    self.w_s = t.nn.ParameterList([
+        nn.Parameter(t.Tensor(self.w_std * t.randn(1, self.m, self.n, self.d)))
+    ])
+    self.b_s = t.nn.ParameterList([
+        nn.Parameter(t.Tensor(self.b_std * t.randn(1, self.m, self.n, self.d)))
+    ])
+    self.a_s = t.nn.ParameterList([
+        nn.Parameter(t.Tensor(self.a_std * t.randn(1, self.m, self.n, self.d)))
+    ])
+    for _ in range(self.L - 2):
+      self.w_s += [
+          nn.Parameter(
+              t.Tensor(w_scale * t.randn(self.m, self.m, self.n, self.d)))
+      ]
+      self.b_s += [
+          nn.Parameter(t.Tensor(self.b_std * t.randn(self.m, self.n, self.d)))
+      ]
+      self.a_s += [
+          nn.Parameter(t.Tensor(self.a_std * t.randn(self.m, self.n, self.d)))
+      ]
+    self.w_s += [
+        nn.Parameter(t.Tensor(w_scale * t.randn(self.m, 1, self.n, self.d)))
+    ]
+    self.b_s += [
+        nn.Parameter(t.Tensor(self.b_std * t.randn(1, 1, self.n, self.d)))
+    ]
+    self.a_s += [nn.Parameter(t.Tensor(self.a_std * t.randn(self.n)))]
+
+  def phis(self, Xn, inds=..., eps=1e-15):
+    # Xn is a M x 1 x n x dim(inds) tensor
+    # returns M x n tensor
+    phis = Xn
+
+    # keep only the parameters relevant for the subset of variables specified by inds
+    sliced_ws = [w[..., inds] for w in self.w_s]
+    sliced_bs = [b[..., inds] for b in self.b_s]
+    sliced_as = [a[..., inds] for a in self.a_s]
+
+    # compute CDF using a feed-forward network
+    for w, b, a in zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as[:-1]):
+      phis = t.einsum('mkij,klij->mlij', phis, self.nonneg_m(w)) + b
+      phis = phis + t.tanh(phis) * t.tanh(a)
+
+    phis = t.einsum('mkij,klij->mlij', phis, self.nonneg_m(
+        sliced_ws[-1])) + sliced_bs[-1]
+
+    # adding eps term ensures non-negative derivatives wrt X
+    phis = self.phi(phis / 1) + eps * Xn
+    phis = t.prod(phis, -1)
+    return t.squeeze(phis)
+
+  def phidots(self, X, inds=...):
+    # X : M x len(inds) tensor of sample points
+    # returns M x n tensor
+
+    X.requires_grad = True
+    Xn = self.expand_X(X)
+    phis = self.phis(Xn, inds)
+    phis = phis.sum()
+    phidots = t.autograd.grad(phis, Xn, create_graph=True)[0]
+    phidots = t.prod(phidots, -1)
+    return t.squeeze(phidots)
+
+  def expand_X(self, X):
+    if len(X.shape) == 1:
+      X = X.unsqueeze(-1)
+    X = X.unsqueeze(1).unsqueeze(-2)
+    Xn = X.expand(-1, 1, self.n, -1)
+    return Xn
+
+  def CDF(self, X, inds=...):
+    # Evaluate joint CDF at X
+    # X : M x len(inds) tensor of sample points
+    # returns M dim tensor
+
+    Xn = self.expand_X(X)
+    phis = self.phis(Xn, inds)
+    a = self.nonneg(self.a_s[-1])
+    F = t.einsum('mi,i->m', phis, a / a.sum())
+    return F
+
+  def likelihood(self, X, inds=...):
+    # Evaluate joint likelihood at X
+    # X : M x d tensor of sample points
+    # inds : list of indices to restrict to (if interested in a subset of variables)
+    with t.enable_grad():
+      phidots = self.phidots(X, inds)
+      a = self.nonneg(self.a_s[-1])
+      f = t.einsum('mi,i->m', phidots, a / a.sum())
+    return f
+
+  def log_density(self, X, inds=..., eps=1e-15):
+    return t.log(self.likelihood(X, inds) + eps)
+
+  def nll(self, X):
+    # negative log likelihood
+    # X : M x d tensor of sample points
+    return -t.mean(self.log_density(X))
+
+  def sample(self,
+             S,
+             inds=None,
+             n_bisect_iter=35,
+             upper_bound=1e3,
+             lower_bound=-1e3):
+    # if inds is not specified, sample all variables
+    if inds is None:
+      inds = range(self.d)
+
+    dim_samples = len(inds)
+    U = t.rand(S, dim_samples)
+
+    samples = t.zeros_like(U)
+    for k in range(dim_samples):
+      curr_condCDF = self.condCDF(k, samples[:, :k], inds)
+      samples[:, k] = utils.invert(curr_condCDF,
+                                   U[:, k],
+                                   n_bisect_iter=n_bisect_iter,
+                                   ub=upper_bound,
+                                   lb=lower_bound)
+
+    return samples.cpu().detach().numpy()
+
+    # s_i_1 = marg_cdf^-1(U_1)
+    # s_i_2 = cond_cdf(i_2|s_i_1)
+    # ...
+  def condCDF(self, k, prev_samples, inds):
+    # compute the conditional CDF F(x_{inds[k]}|x_{inds[0]},...,x_{inds[k-1]})
+    # prev_samples: S x (k-1) tensor of variables to condition over
+    # returns a function R^S -> [0,1]^S
+
+    a = self.nonneg(self.a_s[-1])
+
+    if k == 0:
+      # there is nothing to condition on
+      phidots = 1
+      denom = 1
+    else:
+      phidots = self.phidots(prev_samples, inds=inds[:k])
+      denom = t.einsum('mi,i->m', phidots, a / a.sum())
+
+    def curr_condCDF(u):
+      un = self.expand_X(u)
+      prod = self.phis(un, inds=[inds[k]]) * phidots
+      CCDF = t.einsum('mi,i->m', prod, a / a.sum())
+      return CCDF / denom
+
+    # condCDF = lambda u: t.einsum(
+    #     'mi,i->m',
+    #     self.phis(self.expand_X(u), inds=[inds[k]]) * phidots, a / a.sum()
+    # ) / denom
+    return curr_condCDF
+
+
 class CopNet(nn.Module):
   def __init__(
       self,
@@ -257,8 +439,10 @@ class SklarNet(CopNet):
     # initialize parameters for marginal CDFs
     assert self.L_m >= 2
     w_scale = self.w_m_std / t.sqrt(t.Tensor([self.n_m]))
-    self.w_ms = t.nn.ParameterList(
-        [nn.Parameter(t.Tensor(self.w_m_std * t.randn(1, self.n_m, d) + self.w_m_bias))])
+    self.w_ms = t.nn.ParameterList([
+        nn.Parameter(
+            t.Tensor(self.w_m_std * t.randn(1, self.n_m, d) + self.w_m_bias))
+    ])
     self.b_ms = t.nn.ParameterList(
         [nn.Parameter(t.Tensor(self.b_m_std * t.randn(1, self.n_m, d)))])
     self.a_ms = t.nn.ParameterList(
@@ -297,7 +481,6 @@ class SklarNet(CopNet):
     sliced_ws = [w[..., inds] for w in self.w_ms]
     sliced_bs = [b[..., inds] for b in self.b_ms]
     sliced_as = [a[..., inds] for a in self.a_ms]
-    
 
     # compute CDF using a feed-forward network
     for w, b, a in zip(sliced_ws, sliced_bs, sliced_as):
@@ -310,14 +493,14 @@ class SklarNet(CopNet):
 
     return t.squeeze(F)
 
-  def marginal_likelihood(self, X, inds=...):
+  def marginal_likelihood(self, X, inds=..., eps=1e-15):
     # compute all marginal likelihoods f(X)
     # X : M x d tensor of sample points
     # inds : list of indices to restrict to (if interested in a subset of variables)
-
-    F = self.marginal_CDF(X, inds=inds)
-    F = t.sum(F)
-    f = t.autograd.grad(F, X, create_graph=True)[0]
+    with t.enable_grad():
+      F = self.marginal_CDF(X, inds=inds)
+      F = t.sum(F)
+      f = t.autograd.grad(F, X, create_graph=True)[0] + eps
     return f
 
   def log_marginal_density(self, X, inds=...):
