@@ -4,6 +4,8 @@ from scipy.stats import norm
 from torch.distributions.normal import Normal
 from copulae import GumbelCopula
 from torch.utils.data import TensorDataset, DataLoader
+import os
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 class linear_interp():

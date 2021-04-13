@@ -30,13 +30,15 @@ def get_default_h():
   h_parser.add_argument('--n_epochs', type=int, default=10)
   h_parser.add_argument('--batch_size', type=int, default=100)
   h_parser.add_argument('--lambda_l2', type=float, default=1e-4)
-  h_parser.add_argument('--decrease_lr_time', type=float, default=1)
-  h_parser.add_argument('--decrease_lr_factor', type=float, default=0.1)
   h_parser.add_argument('--opt',
                         type=str,
                         default='adam',
                         choices=['adam', 'sgd'])
   h_parser.add_argument('--lr', type=int, default=5e-3)
+  h_parser.add_argument('--marginals_first', type=bool, default=False)
+  h_parser.add_argument('--marginal_iters', type=int, default=200)
+  h_parser.add_argument('--alternate_every', type=int, default=100)
+  h_parser.add_argument('--alt_opt', type=bool, default=False)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -53,6 +55,7 @@ def fit_neural_copula(h,
                       use_tb=False,
                       tb_log_dir=None,
                       eval_test=False,
+                      eval_validation=True,
                       exp_name=''):
   """
   :param h: hyperparameters in the form of an argparser
@@ -102,9 +105,11 @@ def fit_neural_copula(h,
   val_nll_iters = []
   checkpoints = []
   checkpoint_iters = []
-  val_nll = eval_nll(model, val_loader)
-  best_val_nll = val_nll
-  best_val_nll_model = copy.deepcopy(model)
+  opt_marginals = True
+  if eval_validation:
+    val_nll = eval_nll(model, val_loader)
+    best_val_nll = val_nll
+    best_val_nll_model = copy.deepcopy(model)
   clip_max_norm = 0
   for epoch in range(h.n_epochs):
     for batch_idx, batch in enumerate(train_loader):
@@ -112,7 +117,24 @@ def fit_neural_copula(h,
 
       # update parameters
       optimizer.zero_grad()
-      nll = model.nll(batch_data)
+
+      if h.alt_opt:
+        if opt_marginals:
+          nll = model.marginal_nll(batch_data)
+          if iter % h.alternate_every == 0:
+            opt_marginals = False
+            print('Switching to full opt')
+        else:
+          nll = model.nll(batch_data)
+          if iter % h.alternate_every == 0:
+            opt_marginals = True
+            print('Switching to marginal opt')
+
+      else:
+        if h.marginals_first and iter < h.marginal_iters:
+          nll = model.marginal_nll(batch_data)
+        else:
+          nll = model.nll(batch_data)
 
       nll.backward()
 
@@ -124,7 +146,7 @@ def fit_neural_copula(h,
 
       nlls.append(nll.cpu().detach().numpy())
 
-      if iter % val_every == 0:
+      if eval_validation and iter % val_every == 0:
         val_nll = eval_nll(model, val_loader)
         val_nlls.append(val_nll)
         val_nll_iters.append(iter)
@@ -133,9 +155,10 @@ def fit_neural_copula(h,
           best_val_nll_model = copy.deepcopy(model)
 
       if verbose and iter % print_every == 0:
-        print(f'iteration {iter}, '
-              f'train nll: {nll.cpu().detach().numpy():.4f}, '
-              f'val nll: {val_nll:.4f}')
+        print_str = f'iteration {iter}, train nll: {nll.cpu().detach().numpy():.4f}'
+        if eval_validation:
+          print_str += f', val nll: {val_nll:.4f}'
+        print(print_str)
 
       if (iter + 1) % checkpoint_every == 0:
         checkpoints.append(copy.deepcopy(model))
@@ -148,29 +171,30 @@ def fit_neural_copula(h,
   # collect outputs
   outs = {
       'nlls': nlls,
-      'val_nlls': val_nlls,
-      'val_nll_iters': val_nll_iters,
       'model': model,
       'h': h,
       'data': data,
       'checkpoints': checkpoints,
       'checkpoint_iters': checkpoint_iters,
-      'best_val_nll_model': best_val_nll_model
   }
 
   if eval_test:
     test_nll = eval_nll(model, test_loader)
     outs['test_nll'] = test_nll
 
+  if eval_validation:
+    outs['val_nlls'] = val_nlls
+    outs['val_nll_iters'] = val_nll_iters
+    outs['best_val_nll_model'] = best_val_nll_model
+
   return outs
 
 
 def eval_nll(model, loader):
-  with t.no_grad():
-    val_nll = 0
-    for batch_idx, batch in enumerate(loader):
-      batch_data = batch[0]
-      val_nll += model.nll(batch_data).cpu().detach().numpy()
+  val_nll = 0
+  for batch_idx, batch in enumerate(loader):
+    batch_data = batch[0]
+    val_nll += model.nll(batch_data, create_graph=False).cpu().detach().numpy()
   return val_nll / (batch_idx + 1)
 
 

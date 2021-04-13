@@ -24,7 +24,7 @@ class CDFNet(nn.Module):
     self.phi = t.sigmoid
     self.phidot = lambda x: t.sigmoid(x) * (1 - t.sigmoid(x))
     self.nonneg = t.nn.Softplus()
-    self.nonneg_m = t.nn.Softplus(10)
+    self.nonneg_m = t.nn.Softplus(10)  # try beta=1?
     self.w_std = w_std
     self.a_std = a_std
     self.b_std = b_std
@@ -84,15 +84,20 @@ class CDFNet(nn.Module):
     phis = t.prod(phis, -1)
     return t.squeeze(phis)
 
-  def phidots(self, X, inds=...):
+  def phidots(self, X, inds=..., create_graph=True):
     # X : M x len(inds) tensor of sample points
     # returns M x n tensor
-
+    # create_graph=True if backpropagation is used
+    #with t.enable_grad():
     X.requires_grad = True
     Xn = self.expand_X(X)
     phis = self.phis(Xn, inds)
     phis = phis.sum()
-    phidots = t.autograd.grad(phis, Xn, create_graph=True)[0]
+    phidots = t.autograd.grad(
+        phis,
+        Xn,
+        create_graph=create_graph,
+    )[0]
     phidots = t.prod(phidots, -1)
     return t.squeeze(phidots)
 
@@ -114,23 +119,36 @@ class CDFNet(nn.Module):
     F = t.einsum('mi,i->m', phis, a / a.sum())
     return F
 
-  def likelihood(self, X, inds=...):
+  def likelihood(self, X, inds=..., create_graph=True):
     # Evaluate joint likelihood at X
     # X : M x d tensor of sample points
     # inds : list of indices to restrict to (if interested in a subset of variables)
-    with t.enable_grad():
-      phidots = self.phidots(X, inds)
-      a = self.nonneg(self.a_s[-1])
-      f = t.einsum('mi,i->m', phidots, a / a.sum())
+
+    phidots = self.phidots(X, inds, create_graph=create_graph)
+    a = self.nonneg(self.a_s[-1])
+    f = t.einsum('mi,i->m', phidots, a / a.sum())
     return f
 
-  def log_density(self, X, inds=..., eps=1e-15):
-    return t.log(self.likelihood(X, inds) + eps)
+  def marginal_likelihood(self, X, create_graph=True):
+    marg_l = t.prod(t.stack([
+        self.likelihood(X[:, i], inds=[i], create_graph=create_graph)
+        for i in range(self.d)
+    ]),
+                    dim=0)
+    return marg_l
 
-  def nll(self, X):
+  def marginal_nll(self, X, create_graph=True):
+    log_marginal_density = t.log(
+        self.marginal_likelihood(X, create_graph=create_graph))
+    return -t.mean(log_marginal_density)
+
+  def log_density(self, X, inds=..., eps=0, create_graph=True):
+    return t.log(self.likelihood(X, inds, create_graph=create_graph) + eps)
+
+  def nll(self, X, create_graph=True):
     # negative log likelihood
     # X : M x d tensor of sample points
-    return -t.mean(self.log_density(X))
+    return -t.mean(self.log_density(X, create_graph=create_graph))
 
   def sample(self,
              S,
@@ -147,7 +165,7 @@ class CDFNet(nn.Module):
 
     samples = t.zeros_like(U)
     for k in range(dim_samples):
-      curr_condCDF = self.condCDF(k, samples[:, :k], inds)
+      curr_condCDF = self.condCDF(k, samples[:, :k], inds, create_graph=False)
       samples[:, k] = utils.invert(curr_condCDF,
                                    U[:, k],
                                    n_bisect_iter=n_bisect_iter,
@@ -156,10 +174,7 @@ class CDFNet(nn.Module):
 
     return samples.cpu().detach().numpy()
 
-    # s_i_1 = marg_cdf^-1(U_1)
-    # s_i_2 = cond_cdf(i_2|s_i_1)
-    # ...
-  def condCDF(self, k, prev_samples, inds):
+  def condCDF(self, k, prev_samples, inds, create_graph=True):
     # compute the conditional CDF F(x_{inds[k]}|x_{inds[0]},...,x_{inds[k-1]})
     # prev_samples: S x (k-1) tensor of variables to condition over
     # returns a function R^S -> [0,1]^S
@@ -171,7 +186,9 @@ class CDFNet(nn.Module):
       phidots = 1
       denom = 1
     else:
-      phidots = self.phidots(prev_samples, inds=inds[:k])
+      phidots = self.phidots(prev_samples,
+                             inds=inds[:k],
+                             create_graph=create_graph)
       denom = t.einsum('mi,i->m', phidots, a / a.sum())
 
     def curr_condCDF(u):
@@ -180,10 +197,6 @@ class CDFNet(nn.Module):
       CCDF = t.einsum('mi,i->m', prod, a / a.sum())
       return CCDF / denom
 
-    # condCDF = lambda u: t.einsum(
-    #     'mi,i->m',
-    #     self.phis(self.expand_X(u), inds=[inds[k]]) * phidots, a / a.sum()
-    # ) / denom
     return curr_condCDF
 
 
