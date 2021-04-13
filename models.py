@@ -34,32 +34,22 @@ class CDFNet(nn.Module):
     assert self.L >= 2
     w_scale = self.w_std / t.sqrt(t.Tensor([self.m]))
     self.w_s = t.nn.ParameterList([
-        nn.Parameter(t.Tensor(self.w_std * t.randn(1, self.m, self.n, self.d)))
+        nn.Parameter(self.w_std * t.randn(1, self.m, self.n, self.d))
     ])
     self.b_s = t.nn.ParameterList([
-        nn.Parameter(t.Tensor(self.b_std * t.randn(1, self.m, self.n, self.d)))
+        nn.Parameter(self.b_std * t.randn(1, self.m, self.n, self.d))
     ])
     self.a_s = t.nn.ParameterList([
-        nn.Parameter(t.Tensor(self.a_std * t.randn(1, self.m, self.n, self.d)))
+        nn.Parameter(self.a_std * t.randn(1, self.m, self.n, self.d))
     ])
     for _ in range(self.L - 2):
-      self.w_s += [
-          nn.Parameter(
-              t.Tensor(w_scale * t.randn(self.m, self.m, self.n, self.d)))
-      ]
-      self.b_s += [
-          nn.Parameter(t.Tensor(self.b_std * t.randn(self.m, self.n, self.d)))
-      ]
-      self.a_s += [
-          nn.Parameter(t.Tensor(self.a_std * t.randn(self.m, self.n, self.d)))
-      ]
-    self.w_s += [
-        nn.Parameter(t.Tensor(w_scale * t.randn(self.m, 1, self.n, self.d)))
-    ]
-    self.b_s += [
-        nn.Parameter(t.Tensor(self.b_std * t.randn(1, 1, self.n, self.d)))
-    ]
-    self.a_s += [nn.Parameter(t.Tensor(self.a_std * t.randn(self.n)))]
+      self.w_s += [ nn.Parameter(w_scale * t.randn(self.m, self.m, self.n, self.d)) ]
+      self.b_s += [ nn.Parameter(self.b_std * t.randn(self.m, self.n, self.d))      ]
+      self.a_s += [ nn.Parameter(self.a_std * t.randn(self.m, self.n, self.d))      ]
+      
+    self.w_s += [nn.Parameter(w_scale * t.randn(self.m, 1, self.n, self.d))]
+    self.b_s += [nn.Parameter(self.b_std * t.randn(1, 1, self.n, self.d)) ]
+    self.a_s += [nn.Parameter(self.a_std * t.randn(self.n))]
 
   def phis(self, Xn, inds=..., eps=1e-15):
     # Xn is a M x 1 x n x dim(inds) tensor
