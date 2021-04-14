@@ -4,6 +4,8 @@ import models
 import copy
 import argparse
 import datetime
+import utils
+import json
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -36,12 +38,6 @@ def get_default_h():
                         choices=['adam', 'sgd'])
   h_parser.add_argument('--lr', type=int, default=5e-3)
   h_parser.add_argument('--patience', type=int, default=50)
-  h_parser.add_argument('--marginals_first', type=bool, default=False)
-  h_parser.add_argument('--marginal_iters', type=int, default=200)
-  h_parser.add_argument('--alternate_every', type=int, default=100)
-  h_parser.add_argument('--alt_opt', type=bool, default=False)
-  h_parser.add_argument('--incremental', type=bool, default=False)
-  h_parser.add_argument('--add_variable_every', type=int, default=100)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -57,6 +53,7 @@ def fit_neural_copula(h,
                       model_to_load=None,
                       use_tb=False,
                       tb_log_dir=None,
+                      save_checkpoints=False,
                       eval_test=False,
                       eval_validation=True,
                       exp_name=''):
@@ -77,13 +74,11 @@ def fit_neural_copula(h,
   print(f'Running {n_iters} iterations.')
 
   if use_tb:
-    fields = ['dataset', 'n', 'm', 'L', 'batch_size', 'lr', '']
-    folder_name = str(datetime.datetime.now())[:-7].replace(' ', '-').replace(
-        ':', '-')
-    tb_path = tb_log_dir
+    tb_path = get_tb_path(tb_log_dir, h, exp_name)
     from tensorboardX import SummaryWriter
     writer = SummaryWriter(tb_path)
-
+    with open(tb_path + '/h.json', 'w') as f:
+      json.dump(h.__dict__, f, indent=4, sort_keys=True)
   if h.opt == 'adam':
     opt_type = optim.Adam
   elif h.opt == 'sgd':
@@ -103,13 +98,11 @@ def fit_neural_copula(h,
 
   # fit neural copula to data
   iter = 0
-  increment = 1
   nlls = []
   val_nlls = []
   val_nll_iters = []
   checkpoints = []
   checkpoint_iters = []
-  opt_marginals = True
   if eval_validation:
     val_nll = eval_nll(model, val_loader)
     best_val_nll = val_nll
@@ -122,30 +115,7 @@ def fit_neural_copula(h,
       # update parameters
       optimizer.zero_grad()
 
-      if h.alt_opt:
-        if opt_marginals:
-          nll = model.marginal_nll(batch_data)
-          if iter % h.alternate_every == 0:
-            opt_marginals = False
-            print('Switching to full opt')
-        else:
-          nll = model.nll(batch_data)
-          if iter % h.alternate_every == 0:
-            opt_marginals = True
-            print('Switching to marginal opt')
-      elif h.incremental:
-        inds = list(range(increment))
-        nll = model.nll(batch_data[:, inds], inds=inds)
-        if (iter + 1) % h.add_variable_every == 0 and increment < h.d:
-          increment += 1
-          print('Variable added')
-          scheduler = t.optim.lr_scheduler.ReduceLROnPlateau(
-              optimizer, verbose=True, patience=h.patience, eps=1e-5)
-      elif h.marginals_first and iter < h.marginal_iters:
-        nll = model.marginal_nll(batch_data)
-      else:
-        nll = model.nll(batch_data)
-
+      nll = model.nll(batch_data)
       nll.backward()
 
       if clip_max_norm > 0:
@@ -173,6 +143,19 @@ def fit_neural_copula(h,
       if (iter + 1) % checkpoint_every == 0:
         checkpoints.append(copy.deepcopy(model))
         checkpoint_iters.append(iter)
+        if save_checkpoints:
+          t.save(
+              {
+                  'model': model.state_dict(),
+                  'optimizer': optimizer.state_dict(),
+                  'iter': iter
+              }, tb_path + '/checkpoint.pt')
+
+      if use_tb:
+        writer.add_scalar('lr', optimizer.param_groups[0]['lr'], iter)
+        writer.add_scalar('loss/train', nll.item(), iter)
+        if eval_validation:
+          writer.add_scalar('loss/validation', val_nll, iter)
 
       iter += 1
       if iter > max_iters:
@@ -191,6 +174,8 @@ def fit_neural_copula(h,
   if eval_test:
     test_nll = eval_nll(model, test_loader)
     outs['test_nll'] = test_nll
+    if use_tb:
+      writer.add_scalar('loss/test', test_nll, iter)
 
   if eval_validation:
     outs['val_nlls'] = val_nlls
@@ -225,3 +210,17 @@ def init_model(h, model_to_load):
       a_std=h.a_std,
   )
   return model
+
+
+def get_tb_path(tb_log_dir, h, exp_name):
+  fields = ['dataset', 'n', 'm', 'L', 'batch_size', 'lr', 'patience']
+  dt_str = str(datetime.datetime.now())[:-7].replace(' ',
+                                                     '-').replace(':', '-')
+  folder_name = [f'{utils.shorten(f)}:{h.__dict__[f]}'
+                 for f in fields] + [dt_str]
+  if exp_name != '':
+    folder_name = [exp_name] + folder_name
+  folder_name = '_'.join(folder_name)
+  folder_name.replace('.', 'p')
+  tb_path = tb_log_dir + '/' + folder_name
+  return tb_path

@@ -8,6 +8,7 @@ import os
 import utils
 os.chdir(ROOT_DIR)
 DATA_DIR = '/data/data'
+TB_DIR = '/data/tb'
 
 from experiments.BNAF.data.gas import GAS
 from experiments.BNAF.data.bsds300 import BSDS300
@@ -17,6 +18,75 @@ from experiments.BNAF.data.power import POWER
 
 np.random.seed(0)
 t.manual_seed(0)
+
+
+def fit_UCI():
+  h = fit.get_default_h()
+  h.dataset = 'power'
+  h.batch_size = 1000
+  h.n_epochs = 4
+  h.n = 1000
+  h.m = 10
+  h.L = 6
+  h.lr = 5e-2
+  h.lambda_l2 = 0
+  h.marginals_first = False
+  h.marginal_iters = 500
+  h.alt_opt = False
+  h.incremental = False
+  h.add_variable_every = 300
+  h.patience = 200
+  # #
+  # h.M = 300000
+  # h.M_val = 50
+  # d = 2
+  # h.d = d
+  # copula_type = 'gumbel'
+  # copula_params = 1.67
+  # marginal_type = 'gaussian'
+  # marginal_params = [np.array([0] * d), np.array([1] * d)]
+  # raw_data = utils.generate_data(h.d,
+  #                                h.M,
+  #                                h.M_val,
+  #                                copula_params=copula_params,
+  #                                marginal_params=marginal_params,
+  #                                copula_type=copula_type,
+  #                                marginal_type=marginal_type)
+  # h.d = 2
+  # raw_data = [
+  #     np.random.randn(h.M, h.d),
+  #     np.random.randn(h.M_val, h.d),
+  #     np.random.randn(h.M_val, h.d)
+  # ]
+  # data = utils.create_loaders([raw_data[0], raw_data[1], raw_data[1]],
+  #                             h.batch_size)
+  data = load_dataset(h)
+
+  #%%
+  # !pip install pytorch_memlab
+  from pytorch_memlab import MemReporter
+  # from pytorch_memlab import LineProfiler
+  # import models
+  #
+  # with LineProfiler(models.CDFNet.likelihood, models.CDFNet.phidots,
+  #                   fit.eval_nll) as prof:
+  outs = fit.fit_neural_copula(h,
+                               data,
+                               val_every=100,
+                               checkpoint_every=20,
+                               eval_validation=False,
+                               eval_test=True,
+                               use_tb=True,
+                               tb_log_dir=TB_DIR,
+                               save_checkpoints=True)
+
+  #%%
+  plt.plot(outs['nlls'])
+  plt.show()
+  #prof.display()
+
+  #reporter = MemReporter()
+  #reporter.report()
 
 
 def load_dataset(h):
@@ -55,69 +125,5 @@ def load_dataset(h):
   return data_loader_train, data_loader_valid, data_loader_test
 
 
-#%%
-h = fit.get_default_h()
-h.dataset = 'power'
-h.batch_size = 2000
-h.n_epochs = 4
-h.n = 2
-h.m = 10
-h.L = 6
-h.lr = 5e-2
-h.lambda_l2 = 0
-h.marginals_first = False
-h.marginal_iters = 500
-h.alt_opt = False
-h.incremental = False
-h.add_variable_every = 300
-h.patience = 500
-#
-h.M = 300000
-h.M_val = 50
-d = 2
-h.d = d
-copula_type = 'gumbel'
-copula_params = 1.67
-marginal_type = 'gaussian'
-marginal_params = [np.array([0] * d), np.array([1] * d)]
-raw_data = utils.generate_data(h.d,
-                               h.M,
-                               h.M_val,
-                               copula_params=copula_params,
-                               marginal_params=marginal_params,
-                               copula_type=copula_type,
-                               marginal_type=marginal_type)
-h.d = 2
-raw_data = [
-    np.random.randn(h.M, h.d),
-    np.random.randn(h.M_val, h.d),
-    np.random.randn(h.M_val, h.d)
-]
-data = utils.create_loaders([raw_data[0], raw_data[1], raw_data[1]],
-                            h.batch_size)
-#data = load_dataset(h)
-
-#%%
-# !pip install pytorch_memlab
-from pytorch_memlab import MemReporter
-# from pytorch_memlab import LineProfiler
-# import models
-#
-# with LineProfiler(models.CDFNet.likelihood, models.CDFNet.phidots,
-#                   fit.eval_nll) as prof:
-outs = fit.fit_neural_copula(
-    h,
-    data,
-    val_every=100,
-    checkpoint_every=20,
-    eval_validation=False,
-    eval_test=True,
-)
-
-#%%
-plt.plot(outs['nlls'])
-plt.show()
-#prof.display()
-
-#reporter = MemReporter()
-#reporter.report()
+if __name__ == '__main__':
+  fit_UCI()

@@ -244,3 +244,7 @@ def create_loaders(data, batch_size):
   test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
   return train_loader, val_loader, test_loader
+
+
+def shorten(s):
+  return ''.join([w[0] for w in s.split('_')])
