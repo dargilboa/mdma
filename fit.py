@@ -35,10 +35,13 @@ def get_default_h():
                         default='adam',
                         choices=['adam', 'sgd'])
   h_parser.add_argument('--lr', type=int, default=5e-3)
+  h_parser.add_argument('--patience', type=int, default=50)
   h_parser.add_argument('--marginals_first', type=bool, default=False)
   h_parser.add_argument('--marginal_iters', type=int, default=200)
   h_parser.add_argument('--alternate_every', type=int, default=100)
   h_parser.add_argument('--alt_opt', type=bool, default=False)
+  h_parser.add_argument('--incremental', type=bool, default=False)
+  h_parser.add_argument('--add_variable_every', type=int, default=100)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -90,7 +93,7 @@ def fit_neural_copula(h,
   optimizer = opt_type(model.parameters(), lr=h.lr, weight_decay=h.lambda_l2)
   scheduler = t.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                      verbose=True,
-                                                     patience=50,
+                                                     patience=h.patience,
                                                      eps=1e-5)
 
   # set up data loaders
@@ -100,6 +103,7 @@ def fit_neural_copula(h,
 
   # fit neural copula to data
   iter = 0
+  increment = 1
   nlls = []
   val_nlls = []
   val_nll_iters = []
@@ -129,12 +133,18 @@ def fit_neural_copula(h,
           if iter % h.alternate_every == 0:
             opt_marginals = True
             print('Switching to marginal opt')
-
+      elif h.incremental:
+        inds = list(range(increment))
+        nll = model.nll(batch_data[:, inds], inds=inds)
+        if (iter + 1) % h.add_variable_every == 0 and increment < h.d:
+          increment += 1
+          print('Variable added')
+          scheduler = t.optim.lr_scheduler.ReduceLROnPlateau(
+              optimizer, verbose=True, patience=h.patience, eps=1e-5)
+      elif h.marginals_first and iter < h.marginal_iters:
+        nll = model.marginal_nll(batch_data)
       else:
-        if h.marginals_first and iter < h.marginal_iters:
-          nll = model.marginal_nll(batch_data)
-        else:
-          nll = model.nll(batch_data)
+        nll = model.nll(batch_data)
 
       nll.backward()
 

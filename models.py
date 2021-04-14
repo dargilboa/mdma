@@ -33,22 +33,21 @@ class CDFNet(nn.Module):
     # initialize parameters for marginal CDFs
     assert self.L >= 2
     w_scale = self.w_std / t.sqrt(t.Tensor([self.m]))
-    self.w_s = t.nn.ParameterList([
-        nn.Parameter(self.w_std * t.randn(1, self.m, self.n, self.d))
-    ])
-    self.b_s = t.nn.ParameterList([
-        nn.Parameter(self.b_std * t.randn(1, self.m, self.n, self.d))
-    ])
-    self.a_s = t.nn.ParameterList([
-        nn.Parameter(self.a_std * t.randn(1, self.m, self.n, self.d))
-    ])
+    self.w_s = t.nn.ParameterList(
+        [nn.Parameter(self.w_std * t.randn(1, self.m, self.n, self.d))])
+    self.b_s = t.nn.ParameterList(
+        [nn.Parameter(self.b_std * t.randn(1, self.m, self.n, self.d))])
+    self.a_s = t.nn.ParameterList(
+        [nn.Parameter(self.a_std * t.randn(1, self.m, self.n, self.d))])
     for _ in range(self.L - 2):
-      self.w_s += [ nn.Parameter(w_scale * t.randn(self.m, self.m, self.n, self.d)) ]
-      self.b_s += [ nn.Parameter(self.b_std * t.randn(self.m, self.n, self.d))      ]
-      self.a_s += [ nn.Parameter(self.a_std * t.randn(self.m, self.n, self.d))      ]
-      
+      self.w_s += [
+          nn.Parameter(w_scale * t.randn(self.m, self.m, self.n, self.d))
+      ]
+      self.b_s += [nn.Parameter(self.b_std * t.randn(self.m, self.n, self.d))]
+      self.a_s += [nn.Parameter(self.a_std * t.randn(self.m, self.n, self.d))]
+
     self.w_s += [nn.Parameter(w_scale * t.randn(self.m, 1, self.n, self.d))]
-    self.b_s += [nn.Parameter(self.b_std * t.randn(1, 1, self.n, self.d)) ]
+    self.b_s += [nn.Parameter(self.b_std * t.randn(1, 1, self.n, self.d))]
     self.a_s += [nn.Parameter(self.a_std * t.randn(self.n))]
 
   def phis(self, Xn, inds=..., eps=1e-15):
@@ -70,15 +69,13 @@ class CDFNet(nn.Module):
         sliced_ws[-1])) + sliced_bs[-1]
 
     # adding eps term ensures non-negative derivatives wrt X
-    phis = self.phi(phis / 1) + eps * Xn
-    phis = t.prod(phis, -1)
+    phis = self.phi(phis) + eps * Xn
     return t.squeeze(phis)
 
   def phidots(self, X, inds=..., create_graph=True):
     # X : M x len(inds) tensor of sample points
     # returns M x n tensor
     # create_graph=True if backpropagation is used
-    #with t.enable_grad():
     X.requires_grad = True
     Xn = self.expand_X(X)
     phis = self.phis(Xn, inds)
@@ -105,6 +102,7 @@ class CDFNet(nn.Module):
 
     Xn = self.expand_X(X)
     phis = self.phis(Xn, inds)
+    phis = t.prod(phis, -1)
     a = self.nonneg(self.a_s[-1])
     F = t.einsum('mi,i->m', phis, a / a.sum())
     return F
@@ -135,10 +133,10 @@ class CDFNet(nn.Module):
   def log_density(self, X, inds=..., eps=0, create_graph=True):
     return t.log(self.likelihood(X, inds, create_graph=create_graph) + eps)
 
-  def nll(self, X, create_graph=True):
+  def nll(self, X, inds=..., create_graph=True):
     # negative log likelihood
     # X : M x d tensor of sample points
-    return -t.mean(self.log_density(X, create_graph=create_graph))
+    return -t.mean(self.log_density(X, inds=inds, create_graph=create_graph))
 
   def sample(self,
              S,
@@ -183,7 +181,9 @@ class CDFNet(nn.Module):
 
     def curr_condCDF(u):
       un = self.expand_X(u)
-      prod = self.phis(un, inds=[inds[k]]) * phidots
+      phis = self.phis(un, inds=[inds[k]])
+      phis = t.prod(phis, -1)
+      prod = phis * phidots
       CCDF = t.einsum('mi,i->m', prod, a / a.sum())
       return CCDF / denom
 

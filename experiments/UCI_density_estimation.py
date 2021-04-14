@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from utils import ROOT_DIR
 import os
+import utils
 os.chdir(ROOT_DIR)
 DATA_DIR = '/data/data'
 
@@ -59,7 +60,7 @@ h = fit.get_default_h()
 h.dataset = 'power'
 h.batch_size = 2000
 h.n_epochs = 4
-h.n = 500
+h.n = 2
 h.m = 10
 h.L = 6
 h.lr = 5e-2
@@ -67,8 +68,34 @@ h.lambda_l2 = 0
 h.marginals_first = False
 h.marginal_iters = 500
 h.alt_opt = False
-
-data = load_dataset(h)
+h.incremental = False
+h.add_variable_every = 300
+h.patience = 500
+#
+h.M = 300000
+h.M_val = 50
+d = 2
+h.d = d
+copula_type = 'gumbel'
+copula_params = 1.67
+marginal_type = 'gaussian'
+marginal_params = [np.array([0] * d), np.array([1] * d)]
+raw_data = utils.generate_data(h.d,
+                               h.M,
+                               h.M_val,
+                               copula_params=copula_params,
+                               marginal_params=marginal_params,
+                               copula_type=copula_type,
+                               marginal_type=marginal_type)
+h.d = 2
+raw_data = [
+    np.random.randn(h.M, h.d),
+    np.random.randn(h.M_val, h.d),
+    np.random.randn(h.M_val, h.d)
+]
+data = utils.create_loaders([raw_data[0], raw_data[1], raw_data[1]],
+                            h.batch_size)
+#data = load_dataset(h)
 
 #%%
 # !pip install pytorch_memlab
@@ -82,7 +109,7 @@ outs = fit.fit_neural_copula(
     h,
     data,
     val_every=100,
-    checkpoint_every=100,
+    checkpoint_every=20,
     eval_validation=False,
     eval_test=True,
 )
