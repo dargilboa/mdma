@@ -50,10 +50,10 @@ class CDFNet(nn.Module):
     self.b_s += [nn.Parameter(self.b_std * t.randn(1, 1, self.n, self.d))]
     self.a_s += [nn.Parameter(self.a_std * t.randn(self.n))]
 
-  def phis(self, Xn, inds=..., eps=1e-15):
+  def phis(self, Xn, inds=...):
     # Xn is a M x 1 x n x dim(inds) tensor
-    # returns M x n tensor
-    phis = Xn
+    # returns M x n x dim(inds) tensor
+    phis = Xn  # cleaner to move expand_X inside and take M x dim(inds) as input, like phidots
 
     # keep only the parameters relevant for the subset of variables specified by inds
     sliced_ws = [w[..., inds] for w in self.w_s]
@@ -68,11 +68,36 @@ class CDFNet(nn.Module):
     phis = t.einsum('mkij,klij->mlij', phis, self.nonneg_m(
         sliced_ws[-1])) + sliced_bs[-1]
 
-    # adding eps term ensures non-negative derivatives wrt X
-    phis = self.phi(phis) + eps * Xn
+    phis = self.phi(phis)
     return t.squeeze(phis)
 
-  def phidots(self, X, inds=..., create_graph=True):
+  def phidots(self, X, inds=...):
+    # X is a M x dim(inds) tensor
+    # returns M x n tensor
+    phis = self.expand_X(X)  # M x 1 x n x dim(inds)
+
+    # keep only the parameters relevant for the subset of variables specified by inds
+    sliced_ws = [w[..., inds] for w in self.w_s]
+    sliced_bs = [b[..., inds] for b in self.b_s]
+    sliced_as = [a[..., inds] for a in self.a_s]
+
+    # compute CDF using a feed-forward network
+    # phidots at the start should be a M x 1 x n x dim(inds) tensor?
+    phidots = t.ones_like(phis)
+    for w, b, a in zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as[:-1]):
+      phis = t.einsum('mkij,klij->mlij', phis, self.nonneg_m(w)) + b
+      phidots = t.einsum('mkij,klij,mlij->mlij', phidots, self.nonneg_m(w),
+                         (1 + t.tanh(a) * utils.tanhdot(phis)))
+      phis = phis + t.tanh(phis) * t.tanh(a)
+    phis = t.einsum('mkij,klij->mlij', phis, self.nonneg_m(
+        sliced_ws[-1])) + sliced_bs[-1]
+    phidots = t.einsum('mkij,klij,mlij->mlij', phidots,
+                       self.nonneg_m(sliced_ws[-1]), utils.sigmoiddot(phis))
+    phidots = t.prod(phidots, -1)
+    phidots = phidots
+    return t.squeeze(phidots)
+
+  def phidots_old(self, X, inds=..., create_graph=True):
     # X : M x len(inds) tensor of sample points
     # returns M x n tensor
     # create_graph=True if backpropagation is used
@@ -107,36 +132,36 @@ class CDFNet(nn.Module):
     F = t.einsum('mi,i->m', phis, a / a.sum())
     return F
 
-  def likelihood(self, X, inds=..., create_graph=True):
+  def likelihood(self, X, inds=...):
     # Evaluate joint likelihood at X
     # X : M x d tensor of sample points
     # inds : list of indices to restrict to (if interested in a subset of variables)
 
-    phidots = self.phidots(X, inds, create_graph=create_graph)
+    phidots = self.phidots(X, inds)
     a = self.nonneg(self.a_s[-1])
     f = t.einsum('mi,i->m', phidots, a / a.sum())
     return f
 
-  def marginal_likelihood(self, X, create_graph=True):
+  def marginal_likelihood(self, X):
     marg_l = t.prod(t.stack([
-        self.likelihood(X[:, i], inds=[i], create_graph=create_graph)
+        self.likelihood(X[:, i], inds=[i])
         for i in range(self.d)
     ]),
                     dim=0)
     return marg_l
 
-  def marginal_nll(self, X, create_graph=True):
+  def marginal_nll(self, X):
     log_marginal_density = t.log(
-        self.marginal_likelihood(X, create_graph=create_graph))
+        self.marginal_likelihood(X))
     return -t.mean(log_marginal_density)
 
-  def log_density(self, X, inds=..., eps=0, create_graph=True):
-    return t.log(self.likelihood(X, inds, create_graph=create_graph) + eps)
+  def log_density(self, X, inds=...,):
+    return t.log(self.likelihood(X, inds))
 
-  def nll(self, X, inds=..., create_graph=True):
+  def nll(self, X, inds=...):
     # negative log likelihood
     # X : M x d tensor of sample points
-    return -t.mean(self.log_density(X, inds=inds, create_graph=create_graph))
+    return -t.mean(self.log_density(X, inds=inds))
 
   def sample(self,
              S,
@@ -153,7 +178,7 @@ class CDFNet(nn.Module):
 
     samples = t.zeros_like(U)
     for k in range(dim_samples):
-      curr_condCDF = self.condCDF(k, samples[:, :k], inds, create_graph=False)
+      curr_condCDF = self.condCDF(k, samples[:, :k], inds)
       samples[:, k] = utils.invert(curr_condCDF,
                                    U[:, k],
                                    n_bisect_iter=n_bisect_iter,
@@ -162,7 +187,7 @@ class CDFNet(nn.Module):
 
     return samples.cpu().detach().numpy()
 
-  def condCDF(self, k, prev_samples, inds, create_graph=True):
+  def condCDF(self, k, prev_samples, inds):
     # compute the conditional CDF F(x_{inds[k]}|x_{inds[0]},...,x_{inds[k-1]})
     # prev_samples: S x (k-1) tensor of variables to condition over
     # returns a function R^S -> [0,1]^S
@@ -174,9 +199,7 @@ class CDFNet(nn.Module):
       phidots = 1
       denom = 1
     else:
-      phidots = self.phidots(prev_samples,
-                             inds=inds[:k],
-                             create_graph=create_graph)
+      phidots = self.phidots(prev_samples,inds=inds[:k])
       denom = t.einsum('mi,i->m', phidots, a / a.sum())
 
     def curr_condCDF(u):

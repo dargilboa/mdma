@@ -47,6 +47,13 @@ def sigmoiddot(x):
   return t.sigmoid(x) * (1 - t.sigmoid(x))
 
 
+def tanhdot(x, eps=1e-15):
+  # 4 * t.exp(-2 * x) / (t.exp(-2 * x) + 1)**2 + eps if x > 0
+  # 4 * t.exp(2 * x) / (t.exp(2 * x) + 1)**2 + eps if x < 0
+  # 4 * t.exp(- sign(x) 2 * x) / (t.exp(2 * x) + 1)**2 + eps if x < 0
+  return 4 * t.exp(-2 * t.sign(x) * x) / (t.exp(-2 * t.sign(x) * x) + 1)**2
+
+
 def ddsigmoid(x):
   return t.sigmoid(x) * (1 - t.sigmoid(x))**2 - t.sigmoid(x)**2 * (
       1 - t.sigmoid(x))

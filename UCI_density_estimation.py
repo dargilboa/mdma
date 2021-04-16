@@ -1,14 +1,6 @@
-#%%
 import fit
 import torch as t
-import matplotlib.pyplot as plt
 import numpy as np
-from utils import ROOT_DIR
-import os
-import utils
-os.chdir(ROOT_DIR)
-DATA_DIR = '/data/data'
-TB_DIR = '/data/tb'
 
 from experiments.BNAF.data.gas import GAS
 from experiments.BNAF.data.bsds300 import BSDS300
@@ -21,48 +13,29 @@ t.manual_seed(0)
 
 
 def fit_UCI():
+  # dataset='power',
+  # batch_size=2000,
+  # n_epochs=8,
+  # n=500,
+  # m=10,
+  # L=6,
+  # lr=5e-2,
+  # lambda_l2=0,
+  # patience=200,
+  # checkpoint_every=200):
+  checkpoint_every = 200
   h = fit.get_default_h()
-  h.dataset = 'power'
-  h.batch_size = 1000
-  h.n_epochs = 4
-  h.n = 1000
-  h.m = 10
-  h.L = 6
-  h.lr = 5e-2
-  h.lambda_l2 = 0
-  h.marginals_first = False
-  h.marginal_iters = 500
-  h.alt_opt = False
-  h.incremental = False
-  h.add_variable_every = 300
-  h.patience = 200
-  # #
-  # h.M = 300000
-  # h.M_val = 50
-  # d = 2
-  # h.d = d
-  # copula_type = 'gumbel'
-  # copula_params = 1.67
-  # marginal_type = 'gaussian'
-  # marginal_params = [np.array([0] * d), np.array([1] * d)]
-  # raw_data = utils.generate_data(h.d,
-  #                                h.M,
-  #                                h.M_val,
-  #                                copula_params=copula_params,
-  #                                marginal_params=marginal_params,
-  #                                copula_type=copula_type,
-  #                                marginal_type=marginal_type)
-  # h.d = 2
-  # raw_data = [
-  #     np.random.randn(h.M, h.d),
-  #     np.random.randn(h.M_val, h.d),
-  #     np.random.randn(h.M_val, h.d)
-  # ]
-  # data = utils.create_loaders([raw_data[0], raw_data[1], raw_data[1]],
-  #                             h.batch_size)
+  # h.dataset = dataset
+  # h.batch_size = batch_size
+  # h.n_epochs = n_epochs
+  # h.n = n
+  # h.m = m
+  # h.L = L
+  # h.lr = lr
+  # h.lambda_l2 = lambda_l2
+  # h.patience = patience
   data = load_dataset(h)
 
-  #%%
   # !pip install pytorch_memlab
   from pytorch_memlab import MemReporter
   # from pytorch_memlab import LineProfiler
@@ -73,16 +46,13 @@ def fit_UCI():
   outs = fit.fit_neural_copula(h,
                                data,
                                val_every=100,
-                               checkpoint_every=20,
+                               checkpoint_every=checkpoint_every,
                                eval_validation=False,
                                eval_test=True,
-                               use_tb=True,
-                               tb_log_dir=TB_DIR,
                                save_checkpoints=True)
 
-  #%%
-  plt.plot(outs['nlls'])
-  plt.show()
+  #plt.plot(outs['nlls'])
+  #plt.show()
   #prof.display()
 
   #reporter = MemReporter()
@@ -91,15 +61,15 @@ def fit_UCI():
 
 def load_dataset(h):
   if h.dataset == 'gas':
-    dataset = GAS(DATA_DIR + '/gas/ethylene_CO.pickle')
+    dataset = GAS(h.data_dir + '/gas/ethylene_CO.pickle')
   elif h.dataset == 'bsds300':
-    dataset = BSDS300(DATA_DIR + '/BSDS300/BSDS300.hdf5')
+    dataset = BSDS300(h.data_dir + '/BSDS300/BSDS300.hdf5')
   elif h.dataset == 'hepmass':
-    dataset = HEPMASS(DATA_DIR + '/hepmass')
+    dataset = HEPMASS(h.data_dir + '/hepmass')
   elif h.dataset == 'miniboone':
-    dataset = MINIBOONE(DATA_DIR + '/miniboone/data.npy')
+    dataset = MINIBOONE(h.data_dir + '/miniboone/data.npy')
   elif h.dataset == 'power':
-    dataset = POWER(DATA_DIR + '/power/data.npy')
+    dataset = POWER(h.data_dir + '/power/data.npy')
   else:
     raise RuntimeError()
 
