@@ -95,7 +95,7 @@ class CDFNet(nn.Module):
                        self.nonneg_m(sliced_ws[-1]), utils.sigmoiddot(phis))
     
     
-    fm = -t.log(phidots+1e-10).detach()    
+    fm = -t.log(phidots + 1e-10).detach()    
     fm = fm.mean(3,True)
     fm = fm.min(2,True)[0]
     
@@ -145,9 +145,8 @@ class CDFNet(nn.Module):
     # inds : list of indices to restrict to (if interested in a subset of variables)
 
     phidots, fm = self.phidots(X, inds)
-    # a = self.nonneg(self.a_s[-1])
-    # f = t.einsum('mi,i->m', phidots, a / a.sum())
-    f = phidots.mean(1)
+    a = self.nonneg(self.a_s[-1])
+    f = t.einsum('mi,i->m', phidots, a / a.sum())
     return f, fm
 
 
