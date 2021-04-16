@@ -51,7 +51,7 @@ def tanhdot(x, eps=1e-15):
   # 4 * t.exp(-2 * x) / (t.exp(-2 * x) + 1)**2 + eps if x > 0
   # 4 * t.exp(2 * x) / (t.exp(2 * x) + 1)**2 + eps if x < 0
   # 4 * t.exp(- sign(x) 2 * x) / (t.exp(2 * x) + 1)**2 + eps if x < 0
-  return 4 * t.exp(-2 * t.sign(x) * x) / (t.exp(-2 * t.sign(x) * x) + 1)**2
+  return 4 * t.exp(-2 * t.abs(x)) / (t.exp(-2 * t.abs(x)) + 1)**2
 
 
 def ddsigmoid(x):

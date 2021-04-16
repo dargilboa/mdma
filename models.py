@@ -143,19 +143,20 @@ class CDFNet(nn.Module):
     return f
 
   def marginal_likelihood(self, X):
-    marg_l = t.prod(t.stack([
-        self.likelihood(X[:, i], inds=[i])
-        for i in range(self.d)
-    ]),
+    marg_l = t.prod(t.stack(
+        [self.likelihood(X[:, i], inds=[i]) for i in range(self.d)]),
                     dim=0)
     return marg_l
 
   def marginal_nll(self, X):
-    log_marginal_density = t.log(
-        self.marginal_likelihood(X))
+    log_marginal_density = t.log(self.marginal_likelihood(X))
     return -t.mean(log_marginal_density)
 
-  def log_density(self, X, inds=...,):
+  def log_density(
+      self,
+      X,
+      inds=...,
+  ):
     return t.log(self.likelihood(X, inds))
 
   def nll(self, X, inds=...):
@@ -199,7 +200,7 @@ class CDFNet(nn.Module):
       phidots = 1
       denom = 1
     else:
-      phidots = self.phidots(prev_samples,inds=inds[:k])
+      phidots = self.phidots(prev_samples, inds=inds[:k])
       denom = t.einsum('mi,i->m', phidots, a / a.sum())
 
     def curr_condCDF(u):
