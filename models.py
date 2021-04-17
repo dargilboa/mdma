@@ -93,9 +93,16 @@ class CDFNet(nn.Module):
         sliced_ws[-1])) + sliced_bs[-1]
     phidots = t.einsum('mkij,klij,mlij->mlij', phidots,
                        self.nonneg_m(sliced_ws[-1]), utils.sigmoiddot(phis))
-    phidots = t.prod(phidots, -1)
-    phidots = phidots
-    return t.squeeze(phidots)
+    
+    
+    fm = -t.log(phidots + 1e-10).detach()    
+    fm = fm.mean(3,True)
+    fm = fm.min(2,True)[0]
+    
+    phidots = t.prod(t.exp(fm)*phidots, -1)
+    return t.squeeze(phidots), fm.squeeze()
+
+
 
   def phidots_old(self, X, inds=..., create_graph=True):
     # X : M x len(inds) tensor of sample points
@@ -137,10 +144,12 @@ class CDFNet(nn.Module):
     # X : M x d tensor of sample points
     # inds : list of indices to restrict to (if interested in a subset of variables)
 
-    phidots = self.phidots(X, inds)
+    phidots, fm = self.phidots(X, inds)
     a = self.nonneg(self.a_s[-1])
     f = t.einsum('mi,i->m', phidots, a / a.sum())
-    return f
+    return f, fm
+
+
 
   def marginal_likelihood(self, X):
     marg_l = t.prod(t.stack(
@@ -152,12 +161,10 @@ class CDFNet(nn.Module):
     log_marginal_density = t.log(self.marginal_likelihood(X))
     return -t.mean(log_marginal_density)
 
-  def log_density(
-      self,
-      X,
-      inds=...,
-  ):
-    return t.log(self.likelihood(X, inds))
+  def log_density(self, X, inds=...):      
+      lk, fm  = self.likelihood(X, inds)
+      return t.log( lk + 1e-10) - fm*self.d
+
 
   def nll(self, X, inds=...):
     # negative log likelihood
