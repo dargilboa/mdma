@@ -13,48 +13,9 @@ t.manual_seed(0)
 
 
 def fit_UCI():
-  # dataset='power',
-  # batch_size=2000,
-  # n_epochs=8,
-  # n=500,
-  # m=10,
-  # L=6,
-  # lr=5e-2,
-  # lambda_l2=0,
-  # patience=200,
   h = fit.get_default_h()
-  # h.dataset = dataset
-  # h.batch_size = batch_size
-  # h.n_epochs = n_epochs
-  # h.n = n
-  # h.m = m
-  # h.L = L
-  # h.lr = lr
-  # h.lambda_l2 = lambda_l2
-  # h.patience = patience
   data = load_dataset(h)
-
-  # !pip install pytorch_memlab
-  # from pytorch_memlab import MemReporter
-  # from pytorch_memlab import LineProfiler
-  # import models
-  #
-  # with LineProfiler(models.CDFNet.likelihood, models.CDFNet.phidots,
-  #                   fit.eval_nll) as prof:
-  outs = fit.fit_neural_copula(
-      h,
-      data,
-      val_every=100,
-      eval_validation=False,
-      eval_test=True,
-  )
-
-  #plt.plot(outs['nlls'])
-  #plt.show()
-  #prof.display()
-
-  #reporter = MemReporter()
-  #reporter.report()
+  outs = fit.fit_neural_copula(h, data)
 
 
 def load_dataset(h):

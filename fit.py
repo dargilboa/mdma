@@ -48,16 +48,28 @@ def get_default_h(parent=None):
   h_parser.add_argument('--patience', '-p', type=int, default=50)
   # logging
   h_parser.add_argument('--data_dir', type=str, default='/data/data')
-  h_parser.add_argument('--use_tb', type=bool, default=False)
+  h_parser.add_argument('--use_tb', type=utils.str2bool, default=False)
   h_parser.add_argument('--tb_dir', type=str, default='/data/tb')
   h_parser.add_argument('--exp_name', type=str, default='')
   h_parser.add_argument('--model_to_load', '-mtl', type=str, default='')
   h_parser.add_argument('--set_detect_anomaly',
                         '-sde',
-                        type=bool,
+                        type=utils.str2bool,
                         default=False)
-  h_parser.add_argument('--save_checkpoints', '-sc', type=bool, default=False)
+  h_parser.add_argument('--save_checkpoints',
+                        '-sc',
+                        type=utils.str2bool,
+                        default=False)
+  h_parser.add_argument('--save_path', type=str, default='')
   h_parser.add_argument('--checkpoint_every', '-ce', type=int, default=200)
+  h_parser.add_argument('--eval_validation', type=utils.str2bool, default=True)
+  h_parser.add_argument('--val_every', '-ve', type=int, default=200)
+  h_parser.add_argument('--eval_test',
+                        '-et',
+                        type=utils.str2bool,
+                        default=True)
+  h_parser.add_argument('--verbose', '-v', type=utils.str2bool, default=True)
+  h_parser.add_argument('--print_every', '-pe', type=int, default=20)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -66,29 +78,18 @@ def get_default_h(parent=None):
 def fit_neural_copula(
     h,
     data,
-    verbose=True,
-    print_every=20,
-    val_every=20,
     max_iters=float("inf"),
-    save_path='',
-    eval_test=False,
-    eval_validation=True,
 ):
   """
   :param h: hyperparameters in the form of an argparser
   :param data: A list of train, val and test dataloaders
-  :param verbose:
-  :param print_every:
-  :param checkpoint_every:
-  :param val_every:
-  :param max_iters:
-  :param model_to_load:
   :return:
   """
   n_iters = h.n_epochs * h.M // h.batch_size
   print(h)
   print(f"Running {n_iters} iterations.")
 
+  save_path = h.save_path
   if h.use_tb:
     if h.model_to_load != '':
       tb_path = h.model_to_load
@@ -114,7 +115,7 @@ def fit_neural_copula(
   nlls = []
   val_nlls = []
   val_nll_iters = []
-  if eval_validation:
+  if h.eval_validation:
     val_nll = eval_nll(model, val_loader)
     best_val_nll = val_nll
     best_val_nll_model = copy.deepcopy(model)
@@ -137,7 +138,7 @@ def fit_neural_copula(
 
       nlls.append(nll.cpu().detach().numpy())
 
-      if eval_validation and iter % val_every == 0:
+      if h.eval_validation and iter % h.val_every == 0:
         val_nll = eval_nll(model, val_loader)
         val_nlls.append(val_nll)
         val_nll_iters.append(iter)
@@ -145,9 +146,9 @@ def fit_neural_copula(
           best_val_nll = val_nll
           best_val_nll_model = copy.deepcopy(model)
 
-      if verbose and iter % print_every == 0:
+      if h.verbose and iter % h.print_every == 0:
         print_str = f'iteration {iter}, train nll: {nll.cpu().detach().numpy():.4f}'
-        if eval_validation:
+        if h.eval_validation:
           print_str += f', val nll: {val_nll:.4f}'
         print(print_str)
 
@@ -163,7 +164,7 @@ def fit_neural_copula(
       if h.use_tb:
         writer.add_scalar('lr', optimizer.param_groups[0]['lr'], iter)
         writer.add_scalar('loss/train', nll.item(), iter)
-        if eval_validation:
+        if h.eval_validation:
           writer.add_scalar('loss/validation', val_nll, iter)
 
       iter += 1
@@ -178,13 +179,13 @@ def fit_neural_copula(
       'data': data,
   }
 
-  if eval_test:
+  if h.eval_test:
     test_nll = eval_nll(model, test_loader)
     outs['test_nll'] = test_nll
     if h.use_tb:
       writer.add_scalar('loss/test', test_nll, iter)
 
-  if eval_validation:
+  if h.eval_validation:
     outs['val_nlls'] = val_nlls
     outs['val_nll_iters'] = val_nll_iters
     outs['best_val_nll_model'] = best_val_nll_model

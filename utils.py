@@ -4,6 +4,7 @@ from scipy.stats import norm
 from torch.distributions.normal import Normal
 from copulae import GumbelCopula
 from torch.utils.data import TensorDataset, DataLoader
+import argparse
 import os
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -255,3 +256,14 @@ def create_loaders(data, batch_size):
 
 def shorten(s):
   return ''.join([w[0] for w in s.split('_')])
+
+
+def str2bool(v):
+  if isinstance(v, bool):
+    return v
+  if v.lower() in ('yes', 'true', 't', 'y', '1'):
+    return True
+  elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+    return False
+  else:
+    raise argparse.ArgumentTypeError('Boolean value expected.')
