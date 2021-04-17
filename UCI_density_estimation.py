@@ -37,7 +37,7 @@ def fit_UCI():
   data = load_dataset(h)
 
   # !pip install pytorch_memlab
-  from pytorch_memlab import MemReporter
+  # from pytorch_memlab import MemReporter
   # from pytorch_memlab import LineProfiler
   # import models
   #

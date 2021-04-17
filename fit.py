@@ -6,6 +6,7 @@ import argparse
 import datetime
 import utils
 import json
+import os
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -50,6 +51,11 @@ def get_default_h(parent=None):
   h_parser.add_argument('--use_tb', type=bool, default=False)
   h_parser.add_argument('--tb_dir', type=str, default='/data/tb')
   h_parser.add_argument('--exp_name', type=str, default='')
+  h_parser.add_argument('--model_to_load', '-mtl', type=str, default='')
+  h_parser.add_argument('--set_detect_anomaly',
+                        '-sde',
+                        type=bool,
+                        default=False)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -63,7 +69,6 @@ def fit_neural_copula(
     checkpoint_every=100,
     val_every=20,
     max_iters=float("inf"),
-    model_to_load=None,
     save_checkpoints=False,
     save_path='',
     eval_test=False,
@@ -85,10 +90,11 @@ def fit_neural_copula(
   print(f"Running {n_iters} iterations.")
 
   if h.use_tb:
-    if model_to_load is not None:
-      tb_path = model_to_load
+    if h.model_to_load != '':
+      tb_path = h.model_to_load
     else:
       tb_path = get_tb_path(h)
+      os.mkdir(tb_path)
       with open(tb_path + '/h.json', 'w') as f:
         json.dump(h.__dict__, f, indent=4, sort_keys=True)
     save_path = tb_path
@@ -98,11 +104,11 @@ def fit_neural_copula(
   model, optimizer, scheduler, iter = initialize(h)
   model, optimizer, scheduler, iter = load_checkpoint(model, optimizer,
                                                       scheduler, iter,
-                                                      model_to_load)
+                                                      h.model_to_load)
   # set up data loaders
   train_loader, val_loader, test_loader = data
 
-  t.autograd.set_detect_anomaly(True)
+  t.autograd.set_detect_anomaly(h.set_detect_anomaly)
 
   # fit neural copula to data
   nlls = []
@@ -222,13 +228,13 @@ def initialize(h):
 
 
 def load_checkpoint(model, optimizer, scheduler, iter, checkpoint_to_load):
-  if checkpoint_to_load is not None:
+  if checkpoint_to_load != '':
     print('Loading model..')
     checkpoint = t.load(checkpoint_to_load + '/checkpoint.pt')
     model.load_state_dict(checkpoint['model'])
     optimizer.load_state_dict(checkpoint['optimizer'])
     scheduler.load_state_dict(checkpoint['scheduler'])
-    iter = checkpoint['scheduler']
+    iter = checkpoint['iter']
   return model, optimizer, scheduler, iter
 
 
