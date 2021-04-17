@@ -56,6 +56,8 @@ def get_default_h(parent=None):
                         '-sde',
                         type=bool,
                         default=False)
+  h_parser.add_argument('--save_checkpoints', '-sc', type=bool, default=False)
+  h_parser.add_argument('--checkpoint_every', '-ce', type=int, default=200)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -66,10 +68,8 @@ def fit_neural_copula(
     data,
     verbose=True,
     print_every=20,
-    checkpoint_every=100,
     val_every=20,
     max_iters=float("inf"),
-    save_checkpoints=False,
     save_path='',
     eval_test=False,
     eval_validation=True,
@@ -151,7 +151,7 @@ def fit_neural_copula(
           print_str += f', val nll: {val_nll:.4f}'
         print(print_str)
 
-      if save_checkpoints and (iter + 1) % checkpoint_every == 0:
+      if h.save_checkpoints and (iter + 1) % h.checkpoint_every == 0:
         t.save(
             {
                 'model': model.state_dict(),

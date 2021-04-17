@@ -22,8 +22,6 @@ def fit_UCI():
   # lr=5e-2,
   # lambda_l2=0,
   # patience=200,
-  # checkpoint_every=200):
-  checkpoint_every = 200
   h = fit.get_default_h()
   # h.dataset = dataset
   # h.batch_size = batch_size
@@ -43,13 +41,13 @@ def fit_UCI():
   #
   # with LineProfiler(models.CDFNet.likelihood, models.CDFNet.phidots,
   #                   fit.eval_nll) as prof:
-  outs = fit.fit_neural_copula(h,
-                               data,
-                               val_every=100,
-                               checkpoint_every=checkpoint_every,
-                               eval_validation=False,
-                               eval_test=True,
-                               save_checkpoints=True)
+  outs = fit.fit_neural_copula(
+      h,
+      data,
+      val_every=100,
+      eval_validation=False,
+      eval_test=True,
+  )
 
   #plt.plot(outs['nlls'])
   #plt.show()
