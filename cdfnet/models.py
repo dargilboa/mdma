@@ -1,21 +1,24 @@
 import torch as t
 import torch.nn as nn
-import utils
+from cdfnet import utils
 from operator import itemgetter
+from opt_einsum import contract, contract_expression
+from numpy import concatenate
+
+einsum = t.einsum
+# einsum = contract
 
 
 class CDFNet(nn.Module):
-  def __init__(
-      self,
-      d,
-      n=100,
-      L=4,
-      m=5,
-      w_std=0.1,
-      b_bias=0,
-      b_std=0.1,
-      a_std=1.0,
-  ):
+  def __init__(self,
+               d,
+               n=100,
+               L=4,
+               m=5,
+               w_std=0.1,
+               b_bias=0,
+               b_std=0.1,
+               a_std=1.0):
     super(CDFNet, self).__init__()
     self.d = d
     self.n = n
@@ -29,6 +32,7 @@ class CDFNet(nn.Module):
     self.a_std = a_std
     self.b_std = b_std
     self.b_bias = b_bias
+    self.phidot_expr = [[None, None] for w in range(0, L)]
 
     # initialize parameters for marginal CDFs
     assert self.L >= 2
@@ -62,10 +66,10 @@ class CDFNet(nn.Module):
 
     # compute CDF using a feed-forward network
     for w, b, a in zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as[:-1]):
-      phis = t.einsum('mjik,jikl->mjil', phis, self.nonneg_m(w)) + b
+      phis = einsum('mjik,jikl->mjil', phis, self.nonneg_m(w)) + b
       phis = phis + t.tanh(phis) * t.tanh(a)
 
-    phis = t.einsum('mjik,jikl->mjil', phis, self.nonneg_m(
+    phis = einsum('mjik,jikl->mjil', phis, self.nonneg_m(
         sliced_ws[-1])) + sliced_bs[-1]
 
     phis = self.phi(phis)
@@ -76,22 +80,45 @@ class CDFNet(nn.Module):
     # returns M x n tensor
     phis = self.expand_X(X)  # M x dim(inds) x n x 1
 
-    # keep only the parameters relevant for the subset of variables specified by inds
-    sliced_ws = [w[inds, ...] for w in self.w_s]
+    # keep only the parameters relevant for the subset of variables specified by inds and apply the appropriate transformations
+    sliced_ws = [self.nonneg_m(w[inds, ...]) for w in self.w_s]
     sliced_bs = [b[inds, ...] for b in self.b_s]
-    sliced_as = [a[inds, ...] for a in self.a_s]
+    sliced_as = [t.tanh(a[inds, ...]) for a in self.a_s]
+
+    compute_expr = False
+    if all(concatenate(self.phidot_expr) == None):  # for the first evaluation
+      compute_expr = True
 
     # compute CDF using a feed-forward network
     phidots = t.ones_like(phis)
-    for w, b, a in zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as[:-1]):
-      phis = t.einsum('mjik,jikl->mjil', phis, self.nonneg_m(w)) + b
-      phidots = t.einsum('mjik,jikl,mjil->mjil', phidots, self.nonneg_m(w),
-                         (1 + t.tanh(a) * utils.tanhdot(phis)))
-      phis = phis + t.tanh(phis) * t.tanh(a)
-    phis = t.einsum('mjik,jikl->mjil', phis, self.nonneg_m(
-        sliced_ws[-1])) + sliced_bs[-1]
-    phidots = t.einsum('mjik,jikl,mjil->mjil', phidots,
-                       self.nonneg_m(sliced_ws[-1]), utils.sigmoiddot(phis))
+    for w, b, a, ix in zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as[:-1],
+                           range(0, len(sliced_ws[:-1]))):
+
+      if compute_expr:
+        self.phidot_expr[ix][0] = contract_expression('...ik,...ikl->...il',
+                                                      phis.shape, w.shape)
+      phis = self.phidot_expr[ix][0](phis, w) + b
+
+      if compute_expr == True:
+        self.phidot_expr[ix][1] = contract_expression(
+            '...ik,...ikl,...il->...il', phidots.shape, w.shape, phis.shape)
+      phidots = self.phidot_expr[ix][1](phidots, w,
+                                        (1 + a * utils.tanhdot(phis)))
+
+      phis = phis + t.tanh(phis) * a
+
+    if compute_expr == True:
+      self.phidot_expr[-1][0] = contract_expression('...ik,...ikl->...il',
+                                                    phis.shape,
+                                                    sliced_ws[-1].shape)
+    phis = self.phidot_expr[-1][0](phis, sliced_ws[-1]) + sliced_bs[-1]
+    if compute_expr == True:
+      self.phidot_expr[-1][1] = contract_expression(
+          '...ik,...ikl,...il->...il', phidots.shape, sliced_ws[-1].shape,
+          phis.shape)
+      # pdb.set_trace()
+    phidots = self.phidot_expr[-1][1](phidots, sliced_ws[-1],
+                                      utils.sigmoiddot(phis))
 
     fm = -t.log(phidots + 1e-10).detach()
     fm = fm.mean(1, True)  # mean over d
@@ -116,7 +143,7 @@ class CDFNet(nn.Module):
     phis = self.phis(Xn, inds)
     phis = t.prod(phis, 1)
     a = self.nonneg(self.a_s[-1])
-    F = t.einsum('mi,i->m', phis, a / a.sum())
+    F = einsum('mi,i->m', phis, a / a.sum())
     return F
 
   def likelihood(self, X, inds=...):
@@ -126,7 +153,7 @@ class CDFNet(nn.Module):
 
     phidots, fm = self.phidots(X, inds)
     a = self.nonneg(self.a_s[-1])
-    f = t.einsum('mi,i->m', phidots, a / a.sum())
+    f = einsum('mi,i->m', phidots, a / a.sum())
     return f, fm
 
   def marginal_likelihood(self, X):
@@ -189,14 +216,14 @@ class CDFNet(nn.Module):
       denom = 1
     else:
       phidots = self.phidots(prev_samples, inds=inds[:k])
-      denom = t.einsum('mi,i->m', phidots, a / a.sum())
+      denom = einsum('mi,i->m', phidots, a / a.sum())
 
     def curr_condCDF(u):
       un = self.expand_X(u)
       phis = self.phis(un, inds=[inds[k]])
       phis = t.prod(phis, 1)
       prod = phis * phidots
-      CCDF = t.einsum('mi,i->m', prod, a / a.sum())
+      CCDF = einsum('mi,i->m', prod, a / a.sum())
       return CCDF / denom
 
     return curr_condCDF
@@ -287,14 +314,14 @@ class CopNet(nn.Module):
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z[:k], us)])
     zdu = t.stack([zdot_j(u_j)[0] for zdot_j, u_j in zip(self.zdot[:k], us)
                    ])  # check for d > 2
-    A = t.einsum('ij,jm->ijm', self.nonneg(self.w[:, :k]),
-                 zu) + self.b[:, :k].unsqueeze(-1).expand(self.n, k,
-                                                          M)  # n x k-1 x M
+    A = einsum('ij,jm->ijm', self.nonneg(self.w[:, :k]),
+               zu) + self.b[:, :k].unsqueeze(-1).expand(self.n, k,
+                                                        M)  # n x k-1 x M
     AA = self.phidot(A) * self.nonneg(self.w[:, :k]).unsqueeze(-1).expand(
         self.n, k, M) * zdu.unsqueeze(0).expand(self.n, k, M)
     AAA = t.prod(AA, 1)  # n x M
     iZ = 1 / (t.sum(self.nonneg(self.a)))
-    cond_cdf = lambda u: iZ * t.einsum(
+    cond_cdf = lambda u: iZ * einsum(
         'i,im,im->m', self.nonneg(self.a), AAA,
         self.phi(
             self.nonneg(self.w[:, k]).unsqueeze(-1).expand(self.n, M) * self.z[
@@ -317,7 +344,7 @@ class CopNet(nn.Module):
     e = self.nonneg(self.w)
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, us)])  # d x M
     zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, us)])  # d x M
-    p = t.einsum('ij,jm->ijm', e, zu) + self.b.unsqueeze(-1).expand(
+    p = einsum('ij,jm->ijm', e, zu) + self.b.unsqueeze(-1).expand(
         self.n, self.d, M)  # n x d x M
     AA = self.phidot(p) * e.unsqueeze(-1).expand(
         self.n, self.d, M) * zdu.unsqueeze(0).expand(self.n, self.d,
@@ -328,7 +355,7 @@ class CopNet(nn.Module):
     diag_hess = t.zeros(M, self.d)
     for k in range(self.d):
       prod = t.prod(t.cat([AA[:, :k, :], AA[:, k + 1:, :]], 1), 1)  # n x M
-      AAA = t.einsum('i,im,im->im', self.nonneg(self.a), prod, T[:, k, :])
+      AAA = einsum('i,im,im->im', self.nonneg(self.a), prod, T[:, k, :])
       AAA = t.sum(AAA, 0)  # M
       diag_hess[:, k] = AAA
     return diag_hess
@@ -341,7 +368,7 @@ class CopNet(nn.Module):
     e = self.nonneg(self.w)
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(self.z, us)])  # d x M
     zdu = t.stack([zdot_j(u_j) for zdot_j, u_j in zip(self.zdot, us)])  # d x M
-    p = t.einsum('ij,jm->ijm', e, zu) + self.b.unsqueeze(-1).expand(
+    p = einsum('ij,jm->ijm', e, zu) + self.b.unsqueeze(-1).expand(
         self.n, self.d, M)  # n x d x M
     AA = self.phidot(p) * e.unsqueeze(-1).expand(
         self.n, self.d, M) * zdu.unsqueeze(0).expand(self.n, self.d,
@@ -355,8 +382,8 @@ class CopNet(nn.Module):
         prod = t.prod(
             t.cat([AA[:, :l, :], AA[:, l + 1:k, :], AA[:, k + 1:, :]], 1),
             1)  # n x M
-        AAA = t.einsum('i,im,im,im->im', self.nonneg(self.a), prod, T[:, k, :],
-                       T[:, l, :])
+        AAA = einsum('i,im,im,im->im', self.nonneg(self.a), prod, T[:, k, :],
+                     T[:, l, :])
         AAA = t.sum(AAA, 0)  # M
         hess[:, k, l] = hess[:, l, k] = AAA
     return hess
@@ -384,22 +411,21 @@ class CopNet(nn.Module):
     zu = t.stack([z_j(u_j) for z_j, u_j in zip(z, u.transpose(0, 1))])
     zdu = t.stack(
         [zdot_j(u_j) for zdot_j, u_j in zip(zdot, u.transpose(0, 1))])
-    A = t.einsum('ij,jm->ijm', e, zu) + b.unsqueeze(-1).expand(
-        self.n, n_vars, M)
+    A = einsum('ij,jm->ijm', e, zu) + b.unsqueeze(-1).expand(self.n, n_vars, M)
     A = self.phidot(A) * e.unsqueeze(-1).expand(
         self.n, n_vars, M) * zdu.unsqueeze(0).expand(self.n, n_vars, M)
     AA = t.prod(A, 1)  # n x M
     log_copula_density = t.log(
-        t.einsum('i,im->m', self.nonneg(self.a), AA)) - t.log(
+        einsum('i,im->m', self.nonneg(self.a), AA)) - t.log(
             t.sum(self.nonneg(self.a))).unsqueeze(-1).expand(M)
     return log_copula_density
 
   def g(self, u):
     # u: M x d tensor of points
     M = u.size(0)
-    A = t.einsum('ik,ka->ika', self.nonneg(self.w), u.transpose(
+    A = einsum('ik,ka->ika', self.nonneg(self.w), u.transpose(
         0, 1)) + self.b.unsqueeze(-1).expand(self.n, self.d, M)
-    return t.einsum('i,ika->ka', self.nonneg(self.a), self.phi(A)).transpose(
+    return einsum('i,ika->ka', self.nonneg(self.a), self.phi(A)).transpose(
         0, 1) / t.sum(self.nonneg(self.a))
 
   def z_zdot(self, s, g):
@@ -499,11 +525,10 @@ class SklarNet(CopNet):
 
     # compute CDF using a feed-forward network
     for w, b, a in zip(sliced_ws, sliced_bs, sliced_as):
-      F = t.einsum('mij,ikj->mkj', F, self.nonneg_m(w)) + b
+      F = einsum('mij,ikj->mkj', F, self.nonneg_m(w)) + b
       F = F + t.tanh(F) * t.tanh(a)
 
-    F = t.einsum('mij,ikj->mkj', F, self.nonneg_m(
-        sliced_ws[-1])) + sliced_bs[-1]
+    F = einsum('mij,ikj->mkj', F, self.nonneg_m(sliced_ws[-1])) + sliced_bs[-1]
     F = self.phi_m(F)
 
     return t.squeeze(F)

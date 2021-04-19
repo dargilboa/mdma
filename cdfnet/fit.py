@@ -1,12 +1,13 @@
 import torch as t
 import torch.optim as optim
-import models
+from cdfnet import models
+from cdfnet import utils
 import copy
 import argparse
 import datetime
-import utils
 import json
 import os
+import time
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -47,9 +48,9 @@ def get_default_h(parent=None):
   h_parser.add_argument('--lr', type=float, default=5e-3)
   h_parser.add_argument('--patience', '-p', type=int, default=50)
   # logging
-  h_parser.add_argument('--data_dir', type=str, default='/data/data')
+  h_parser.add_argument('--data_dir', type=str, default='data/data')
   h_parser.add_argument('--use_tb', type=utils.str2bool, default=False)
-  h_parser.add_argument('--tb_dir', type=str, default='/data/tb')
+  h_parser.add_argument('--tb_dir', type=str, default='data/tb')
   h_parser.add_argument('--exp_name', type=str, default='')
   h_parser.add_argument('--model_to_load', '-mtl', type=str, default='')
   h_parser.add_argument('--set_detect_anomaly',
@@ -60,7 +61,7 @@ def get_default_h(parent=None):
                         '-sc',
                         type=utils.str2bool,
                         default=True)
-  h_parser.add_argument('--save_path', type=str, default='')
+  h_parser.add_argument('--save_path', type=str, default='data/checkpoint')
   h_parser.add_argument('--checkpoint_every', '-ce', type=int, default=200)
   h_parser.add_argument('--eval_validation', type=utils.str2bool, default=True)
   h_parser.add_argument('--val_every', '-ve', type=int, default=200)
@@ -115,9 +116,12 @@ def fit_neural_copula(
   if h.eval_validation:
     val_nll = eval_nll(model, val_loader)
   clip_max_norm = 0
+  tic = time.time()
   for epoch in range(h.n_epochs):
     for batch_idx, batch in enumerate(train_loader):
       batch_data = batch[0]
+      # import pdb
+      # pdb.set_trace()
 
       # update parameters
       optimizer.zero_grad()
@@ -152,6 +156,10 @@ def fit_neural_copula(
         print_str = f'iteration {iter}, train nll: {nll.cpu().detach().numpy():.4f}'
         if h.eval_validation:
           print_str += f', val nll: {val_nll:.4f}'
+
+        toc = time.time()
+        print_str += f', elapsed: {toc - tic:.4f}'
+        tic = time.time()
         print(print_str)
 
       if h.save_checkpoints and (iter + 1) % h.checkpoint_every == 0:

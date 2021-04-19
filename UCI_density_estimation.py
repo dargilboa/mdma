@@ -1,4 +1,4 @@
-import fit
+from cdfnet import fit
 import torch as t
 import numpy as np
 
