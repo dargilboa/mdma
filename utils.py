@@ -2,7 +2,7 @@ import torch as t
 import numpy as np
 from scipy.stats import norm
 from torch.distributions.normal import Normal
-from copulae import GumbelCopula
+#from copulae import GumbelCopula
 from torch.utils.data import TensorDataset, DataLoader
 import argparse
 import os

@@ -46,7 +46,8 @@ h = fit.get_default_h()
 h.d = 3
 h.M = M
 loaders = utils.create_loaders([dataset, 0, 0], batch_size)
-outs = fit.fit_neural_copula(h, loaders, eval_validation=False)
+h.eval_validation = False
+outs = fit.fit_neural_copula(h, loaders)
 
 #%% plot fitted density
 grid_res = 20

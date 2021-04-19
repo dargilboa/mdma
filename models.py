@@ -141,7 +141,11 @@ class CDFNet(nn.Module):
 
   def log_density(self, X, inds=...):
     lk, fm = self.likelihood(X, inds)
-    return t.log(lk + 1e-10) - fm * self.d
+    if inds == ...:
+      n_vars = self.d
+    else:
+      n_vars = len(inds)
+    return t.log(lk + 1e-10) - fm * n_vars
 
   def nll(self, X, inds=...):
     # negative log likelihood

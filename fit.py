@@ -59,7 +59,7 @@ def get_default_h(parent=None):
   h_parser.add_argument('--save_checkpoints',
                         '-sc',
                         type=utils.str2bool,
-                        default=False)
+                        default=True)
   h_parser.add_argument('--save_path', type=str, default='')
   h_parser.add_argument('--checkpoint_every', '-ce', type=int, default=200)
   h_parser.add_argument('--eval_validation', type=utils.str2bool, default=True)
@@ -70,6 +70,7 @@ def get_default_h(parent=None):
                         default=True)
   h_parser.add_argument('--verbose', '-v', type=utils.str2bool, default=True)
   h_parser.add_argument('--print_every', '-pe', type=int, default=20)
+  h_parser.add_argument('--max_iters', type=int, default=None)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -78,7 +79,6 @@ def get_default_h(parent=None):
 def fit_neural_copula(
     h,
     data,
-    max_iters=float("inf"),
 ):
   """
   :param h: hyperparameters in the form of an argparser
@@ -112,13 +112,8 @@ def fit_neural_copula(
   t.autograd.set_detect_anomaly(h.set_detect_anomaly)
 
   # fit neural copula to data
-  nlls = []
-  val_nlls = []
-  val_nll_iters = []
   if h.eval_validation:
     val_nll = eval_nll(model, val_loader)
-    best_val_nll = val_nll
-    best_val_nll_model = copy.deepcopy(model)
   clip_max_norm = 0
   for epoch in range(h.n_epochs):
     for batch_idx, batch in enumerate(train_loader):
@@ -136,15 +131,22 @@ def fit_neural_copula(
       optimizer.step()
       scheduler.step(nll)
 
-      nlls.append(nll.cpu().detach().numpy())
+      # # add noise to small weights
+      # with t.no_grad():
+      #   small_a_inds = t.where(model.a_s[-1] < -1)[0]
+      #   for param in model.parameters():
+      #     if len(param.shape) > 1:
+      #       # param.add_((t.abs(param) < 0.5 * t.mean(t.abs(param))) *
+      #       #            t.std(param) * t.randn(param.size()) * 0.5)
+      #       param[:, small_a_inds, ...].add_(
+      #           t.std(param) * t.randn(param[:, small_a_inds, ...].size()) *
+      #           0.1)
+      #     else:
+      #       # these are last layer weights
+      #       param[small_a_inds] = 1
 
       if h.eval_validation and iter % h.val_every == 0:
         val_nll = eval_nll(model, val_loader)
-        val_nlls.append(val_nll)
-        val_nll_iters.append(iter)
-        if val_nll < best_val_nll:
-          best_val_nll = val_nll
-          best_val_nll_model = copy.deepcopy(model)
 
       if h.verbose and iter % h.print_every == 0:
         print_str = f'iteration {iter}, train nll: {nll.cpu().detach().numpy():.4f}'
@@ -168,29 +170,14 @@ def fit_neural_copula(
           writer.add_scalar('loss/validation', val_nll, iter)
 
       iter += 1
-      if iter > max_iters:
+      if h.max_iters is not None and iter == h.max_iters:
+        print(f'Terminating after {h.max_iters} iterations.')
         break
-
-  # collect outputs
-  outs = {
-      'nlls': nlls,
-      'model': model,
-      'h': h,
-      'data': data,
-  }
 
   if h.eval_test:
     test_nll = eval_nll(model, test_loader)
-    outs['test_nll'] = test_nll
     if h.use_tb:
       writer.add_scalar('loss/test', test_nll, iter)
-
-  if h.eval_validation:
-    outs['val_nlls'] = val_nlls
-    outs['val_nll_iters'] = val_nll_iters
-    outs['best_val_nll_model'] = best_val_nll_model
-
-  return outs
 
 
 def eval_nll(model, loader):
@@ -224,6 +211,10 @@ def initialize(h):
                                                      patience=h.patience,
                                                      min_lr=1e-5,
                                                      factor=0.5)
+  # scheduler = t.optim.lr_scheduler.CyclicLR(optimizer,
+  #                                           base_lr=1e-5,
+  #                                           max_lr=0.1,
+  #                                           cycle_momentum=False)
   iter = 0
   return model, optimizer, scheduler, iter
 
