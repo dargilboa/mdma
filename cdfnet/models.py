@@ -1,5 +1,6 @@
 import torch as t
 import torch.nn as nn
+import numpy as np
 from cdfnet import utils
 from operator import itemgetter
 from opt_einsum import contract, contract_expression
@@ -10,15 +11,19 @@ einsum = t.einsum
 
 
 class CDFNet(nn.Module):
-  def __init__(self,
-               d,
-               n=100,
-               L=4,
-               m=5,
-               w_std=0.1,
-               b_bias=0,
-               b_std=0.1,
-               a_std=1.0):
+  def __init__(
+      self,
+      d,
+      n=100,
+      L=4,
+      m=5,
+      w_std=0.1,
+      b_bias=0,
+      b_std=0,
+      a_std=1.0,
+      HT_poolsize=2,
+      use_HT=False,
+  ):
     super(CDFNet, self).__init__()
     self.d = d
     self.n = n
@@ -32,7 +37,7 @@ class CDFNet(nn.Module):
     self.a_std = a_std
     self.b_std = b_std
     self.b_bias = b_bias
-    self.phidot_expr = [[None, None] for w in range(0, L)]
+    self.phidot_expr = [[None, None]] * self.L
 
     # initialize parameters for marginal CDFs
     assert self.L >= 2
@@ -54,6 +59,20 @@ class CDFNet(nn.Module):
     self.b_s += [nn.Parameter(self.b_std * t.randn(self.d, self.n, 1))]
     self.a_s += [nn.Parameter(self.a_std * t.randn(self.n))]
 
+    # HT parameters
+    if use_HT:
+      self.HT_poolsize = HT_poolsize
+      self.a_HT_std = .1
+      a_scale = self.a_HT_std / np.sqrt(self.n)
+      self.L_HT = int(np.ceil(np.log(self.d) / np.log(self.HT_poolsize)))
+      self.a_HTs = t.nn.ParameterList()
+      dim_l = self.d
+      for _ in range(self.L_HT - 1):
+        dim_l = int(np.ceil(dim_l / self.HT_poolsize))
+        # at layer l we require dim_l * n * n parameters
+        self.a_HTs += [nn.Parameter(a_scale * t.randn(dim_l, self.n, self.n))]
+      self.a_HTs += [nn.Parameter(a_scale * t.randn(1, self.n, 1))]
+
   def phis(self, Xn, inds=...):
     # Xn is a M x 1 x n x dim(inds) tensor
     # returns M x n x dim(inds) tensor
@@ -73,7 +92,7 @@ class CDFNet(nn.Module):
         sliced_ws[-1])) + sliced_bs[-1]
 
     phis = self.phi(phis)
-    return t.squeeze(phis)
+    return t.squeeze(phis, -1)
 
   def phidots(self, X, inds=...):
     # X is a M x dim(inds) tensor
@@ -91,9 +110,8 @@ class CDFNet(nn.Module):
 
     # compute CDF using a feed-forward network
     phidots = t.ones_like(phis)
-    for w, b, a, ix in zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as[:-1],
-                           range(0, len(sliced_ws[:-1]))):
-
+    for ix, (w, b, a) in enumerate(
+        zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as[:-1])):
       if compute_expr:
         self.phidot_expr[ix][0] = contract_expression('...ik,...ikl->...il',
                                                       phis.shape, w.shape)
@@ -127,6 +145,52 @@ class CDFNet(nn.Module):
     phidots = t.prod(t.exp(fm) * phidots, 1)  # prod over d
     return t.squeeze(phidots), fm.squeeze()  # M x n
 
+  def phidots_no_prod(self, X, inds=...):
+    # X is a M x dim(inds) tensor
+    # returns M x d x n tensor
+    phis = self.expand_X(X)  # M x dim(inds) x n x 1
+
+    # keep only the parameters relevant for the subset of variables specified by inds and apply the appropriate transformations
+    sliced_ws = [self.nonneg_m(w[inds, ...]) for w in self.w_s]
+    sliced_bs = [b[inds, ...] for b in self.b_s]
+    sliced_as = [t.tanh(a[inds, ...]) for a in self.a_s]
+
+    compute_expr = False
+    if all(concatenate(self.phidot_expr) == None):  # for the first evaluation
+      compute_expr = True
+
+    # compute CDF using a feed-forward network
+    phidots = t.ones_like(phis)
+    for ix, (w, b, a) in enumerate(
+        zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as[:-1])):
+      if compute_expr:
+        self.phidot_expr[ix][0] = contract_expression('...ik,...ikl->...il',
+                                                      phis.shape, w.shape)
+      phis = self.phidot_expr[ix][0](phis, w) + b
+
+      if compute_expr == True:
+        self.phidot_expr[ix][1] = contract_expression(
+            '...ik,...ikl,...il->...il', phidots.shape, w.shape, phis.shape)
+      phidots = self.phidot_expr[ix][1](phidots, w,
+                                        (1 + a * utils.tanhdot(phis)))
+
+      phis = phis + t.tanh(phis) * a
+
+    if compute_expr == True:
+      self.phidot_expr[-1][0] = contract_expression('...ik,...ikl->...il',
+                                                    phis.shape,
+                                                    sliced_ws[-1].shape)
+    phis = self.phidot_expr[-1][0](phis, sliced_ws[-1]) + sliced_bs[-1]
+    if compute_expr == True:
+      self.phidot_expr[-1][1] = contract_expression(
+          '...ik,...ikl,...il->...il', phidots.shape, sliced_ws[-1].shape,
+          phis.shape)
+      # pdb.set_trace()
+    phidots = self.phidot_expr[-1][1](phidots, sliced_ws[-1],
+                                      utils.sigmoiddot(phis))
+
+    return t.squeeze(phidots)
+
   def expand_X(self, X):
     if len(X.shape) == 1:
       X = X.unsqueeze(-1)
@@ -156,6 +220,31 @@ class CDFNet(nn.Module):
     f = einsum('mi,i->m', phidots, a / a.sum())
     return f, fm
 
+  def likelihood_HT(self, X, inds=...):
+    # Evaluate joint likelihood at X
+    # X : M x d tensor of sample points
+    # inds : list of indices to restrict to (if interested in a subset of variables)
+    # TODO: handle non default inds
+
+    phidots = self.phidots_no_prod(X, inds) + 1e-10
+    # phidots is M x d x n
+    dim_l = self.d
+    for a_s in self.a_HTs:
+      inds_to_prod = [(j, min(dim_l, j + self.HT_poolsize))
+                      for j in range(0, dim_l, self.HT_poolsize)]
+
+      phidots = [
+          t.prod(phidots[:, inds[0]:inds[1], :], dim=1)
+          for inds in inds_to_prod
+      ]
+      # normalize sum of a_s across second dimension
+      a_s = self.nonneg(a_s)
+      a_s = a_s / t.sum(a_s, dim=1).unsqueeze(1)
+      phidots = t.stack([t.matmul(phid, a) for phid, a in zip(phidots, a_s)],
+                        dim=1)
+
+    return t.squeeze(phidots)
+
   def marginal_likelihood(self, X):
     marg_l = t.prod(t.stack(
         [self.likelihood(X[:, i], inds=[i]) for i in range(self.d)]),
@@ -173,6 +262,15 @@ class CDFNet(nn.Module):
     else:
       n_vars = len(inds)
     return t.log(lk + 1e-10) - fm * n_vars
+
+  def log_density_HT(self, X, inds=...):
+    lk = self.likelihood_HT(X, inds)
+    return t.log(lk)
+
+  def nll_HT(self, X, inds=...):
+    # negative log likelihood
+    # X : M x d tensor of sample points
+    return -t.mean(self.log_density_HT(X, inds=inds))
 
   def nll(self, X, inds=...):
     # negative log likelihood
@@ -215,7 +313,9 @@ class CDFNet(nn.Module):
       phidots = 1
       denom = 1
     else:
-      phidots = self.phidots(prev_samples, inds=inds[:k])
+      phidots, fm = self.phidots(prev_samples, inds=inds[:k])
+      phidots = t.exp(
+          -fm.unsqueeze(1) * k) * phidots  # cancel out correction term
       denom = einsum('mi,i->m', phidots, a / a.sum())
 
     def curr_condCDF(u):

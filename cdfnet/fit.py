@@ -72,6 +72,7 @@ def get_default_h(parent=None):
   h_parser.add_argument('--verbose', '-v', type=utils.str2bool, default=True)
   h_parser.add_argument('--print_every', '-pe', type=int, default=20)
   h_parser.add_argument('--max_iters', type=int, default=None)
+  h_parser.add_argument('--use_HT', type=utils.str2bool, default=False)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -87,8 +88,6 @@ def fit_neural_copula(
   :return:
   """
   n_iters = h.n_epochs * h.M // h.batch_size
-  print(h)
-  print(f"Running {n_iters} iterations.")
 
   save_path = h.save_path
   if h.use_tb:
@@ -107,6 +106,13 @@ def fit_neural_copula(
   model, optimizer, scheduler, iter = load_checkpoint(model, optimizer,
                                                       scheduler, iter,
                                                       h.model_to_load)
+
+  total_params = sum(p.numel() for p in model.parameters())
+  print(h)
+  print(
+      f"Running {n_iters} iterations. Model contains {total_params} parameters."
+  )
+
   # set up data loaders
   train_loader, val_loader, test_loader = data
 
@@ -126,7 +132,10 @@ def fit_neural_copula(
       # update parameters
       optimizer.zero_grad()
 
-      nll = model.nll(batch_data)
+      if h.use_HT:
+        nll = model.nll_HT(batch_data)
+      else:
+        nll = model.nll(batch_data)
       nll.backward()
 
       if clip_max_norm > 0:
@@ -186,6 +195,7 @@ def fit_neural_copula(
     test_nll = eval_nll(model, test_loader)
     if h.use_tb:
       writer.add_scalar('loss/test', test_nll, iter)
+  return model
 
 
 def eval_nll(model, loader):
@@ -197,16 +207,15 @@ def eval_nll(model, loader):
 
 
 def initialize(h):
-  model = models.CDFNet(
-      h.d,
-      n=h.n,
-      L=h.L,
-      m=h.m,
-      w_std=h.w_std,
-      b_bias=h.b_bias,
-      b_std=h.b_std,
-      a_std=h.a_std,
-  )
+  model = models.CDFNet(h.d,
+                        n=h.n,
+                        L=h.L,
+                        m=h.m,
+                        w_std=h.w_std,
+                        b_bias=h.b_bias,
+                        b_std=h.b_std,
+                        a_std=h.a_std,
+                        use_HT=h.use_HT)
   if h.opt == 'adam':
     opt_type = optim.Adam
   elif h.opt == 'sgd':
