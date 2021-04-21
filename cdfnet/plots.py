@@ -38,7 +38,7 @@ def plot_contours(outs):
               colors=colors_r)
   plt.title(
       "n: {}, M: {}, n_iters: {}, $\lambda_{{L^2}}$: {}, $\lambda_H$: {}, \n b_std: {}, a_std: {}, W_std: {}, bptz: {}"
-      .format(outs['n'], outs['M'], outs['n_iters'], outs['lambda_l2'],
+      .format(outs['n'], outs['M'], outs['n_iters'], outs['l2'],
               outs['lambda_hess'], outs['b_std'], outs['a_std'], outs['_std'],
               outs['bp_through_z_update']))
   #plt.scatter(norm.ppf(data.cpu()[:,0]), norm.ppf(data.cpu()[:,1]))

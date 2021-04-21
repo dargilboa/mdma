@@ -19,15 +19,15 @@ h.dataset = dataset
 h.M = M
 h.M_val = 500
 h.d = d
-h.n_epochs = 1
+h.epochs = 1
 h.batch_size = batch_size
 h.n = 500
-h.lambda_l2 = 1e-5
+h.l2 = 1e-5
 h.lr = 1e-2
 
 # init params
 h.m = 5
-h.L = 4
+h.l = 4
 h.w_std = .01
 h.a_std = .01
 h.b_std = 0

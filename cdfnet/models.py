@@ -9,11 +9,124 @@ einsum = t.einsum
 # einsum = contract
 
 
+class CP1Net(nn.Module):
+  def __init__(self,
+               d,
+               n=100,
+               r=100,
+               l=4,
+               m=5,
+               w_std=0.1,
+               b_bias=0,
+               b_std=0.1,
+               a_std=1.0):
+    super(CP1Net, self).__init__()
+    self.d = d
+    self.n = n
+    self.r = r
+    self.m = m
+    self.l = l
+    self.phi = t.sigmoid
+    self.phidot = lambda x: t.sigmoid(x) * (1 - t.sigmoid(x))
+    self.nonneg = t.nn.Softplus()
+    self.nonneg_m = t.nn.Softplus(10)  # try beta=1?
+    self.w_std = w_std
+    self.a_std = a_std
+    self.b_std = b_std
+    self.b_bias = b_bias
+    self.phidot_expr = [[None, None] for w in range(0, l)]
+
+    # initialize parameters for marginal CDFs
+    assert self.l >= 2
+    w_scale = self.w_std / t.sqrt(t.Tensor([self.m]))
+    self.w_s = t.nn.ParameterList(
+        [nn.Parameter(self.w_std * t.randn(self.r, self.m, 1))])
+    self.b_s = t.nn.ParameterList(
+        [nn.Parameter(self.b_std * t.randn(self.r, self.m))])
+    self.a_s = t.nn.ParameterList(
+        [nn.Parameter(self.a_std * t.randn(self.r, self.m))])
+    for i in range(self.l - 1):
+      self.w_s += [nn.Parameter(w_scale * t.randn(self.r, self.m, self.m))]
+      self.b_s += [nn.Parameter(self.b_std * t.randn(self.r, self.m))]
+      self.a_s += [nn.Parameter(self.a_std * t.randn(self.r, self.m))]
+
+    self.w_s += [nn.Parameter(w_scale * t.randn(self.r, self.m))]
+    self.b_s += [nn.Parameter(self.b_std * t.randn(self.r))]
+    # for the a^{z,i}
+    self.a_s += [nn.Parameter(self.a_std * t.randn(self.n, self.d, self.r))]
+    # for the a_z
+    self.a_s += [nn.Parameter(self.a_std * t.randn(self.n))]
+
+  def phidots(self, X, inds=...):
+    # X is a m x dim(inds) tensor
+    # returns m x dim(inds) x r tensor
+    phis = self.expand_X(X)  # m x dim(inds) x r x 1
+
+    phidots = t.ones_like(phis)
+    for w, b, a in zip(self.w_s[:-1], self.b_s[:-1], self.a_s[:-2]):
+      w = self.nonneg_m(w)
+      a = t.tanh(a)
+      phis = t.einsum('ijlk,lmk->ijlm', phis, w) + b
+      phidots = t.einsum('ijlk,lmk->ijlm', phidots,
+                         w) * (1 + a * utils.tanhdot(phis))
+
+      phis = phis + a * t.tanh(phis)
+
+    w = self.nonneg_m(self.w_s[-1])
+    phis = t.einsum('ijlk,lk->ijl', phis, w) + self.b_s[-1]
+    phidots = t.einsum('ijlk,lk->ijl', phidots, w) * utils.sigmoiddot(phis)
+
+    fm = -t.log(phidots + 1e-10).detach()
+    fm = fm.mean(1, True)  # mean over d
+    fm = fm.min(2, True)[0]  # min over r
+
+    return phidots, fm.squeeze()  # m x dim(inds) x r x 1
+
+  def expand_X(self, X):
+    if len(X.shape) == 1:
+      X = X.unsqueeze(-1)
+    X = X.unsqueeze(-1).unsqueeze(-1)
+    Xr = X.expand(-1, -1, self.r, 1)  # m x d x r x 1
+    return Xr
+
+  def likelihood(self, X, inds=...):
+    # Evaluate joint likelihood at X
+    # X : m x d tensor of sample points
+    # inds : list of indices to restrict to (if interested in a subset of variables)
+
+    phidots, fm = self.phidots(X, inds)
+
+    # those are the a^{z,i} from the paper
+    a = self.nonneg(self.a_s[-2])[:, inds, :]
+    a = a / a.sum(1, keepdims=True)  # normalize for each d
+
+    # tensor x representation functions
+    phidots = phidots.unsqueeze(1).expand(-1, self.n, -1, -1) * a
+    # this is the a_z from the paper
+    a = self.nonneg(self.a_s[-1])
+    # sum over representation functions, prod over d, sum over nodes
+    f = einsum('mi,i->m', phidots.sum(3).prod(2), a / a.sum())
+    return f, fm
+
+  def log_density(self, X, inds=...):
+    lk, fm = self.likelihood(X, inds)
+    if inds == ...:
+      n_vars = self.d
+    else:
+      n_vars = len(inds)
+    return t.log(lk + 1e-10)
+
+  def nll(self, X, inds=...):
+    # negative log likelihood
+    # X : m x d tensor of sample points
+    return -t.mean(self.log_density(X, inds=inds))
+
+
 class CDFNet(nn.Module):
   def __init__(self,
                d,
                n=100,
-               L=4,
+               l=4,
                m=5,
                w_std=0.1,
                b_bias=0,
@@ -23,7 +136,7 @@ class CDFNet(nn.Module):
     self.d = d
     self.n = n
     self.m = m
-    self.L = L
+    self.l = l
     self.phi = t.sigmoid
     self.phidot = lambda x: t.sigmoid(x) * (1 - t.sigmoid(x))
     self.nonneg = t.nn.Softplus()
@@ -32,10 +145,10 @@ class CDFNet(nn.Module):
     self.a_std = a_std
     self.b_std = b_std
     self.b_bias = b_bias
-    self.phidot_expr = [[None, None] for w in range(0, L)]
+    self.phidot_expr = [[None, None] for w in range(0, l)]
 
     # initialize parameters for marginal CDFs
-    assert self.L >= 2
+    assert self.l >= 2
     w_scale = self.w_std / t.sqrt(t.Tensor([self.m]))
     self.w_s = t.nn.ParameterList(
         [nn.Parameter(self.w_std * t.randn(self.d, self.n, 1, self.m))])
@@ -43,7 +156,7 @@ class CDFNet(nn.Module):
         [nn.Parameter(self.b_std * t.randn(self.d, self.n, self.m))])
     self.a_s = t.nn.ParameterList(
         [nn.Parameter(self.a_std * t.randn(self.d, self.n, self.m))])
-    for _ in range(self.L - 2):
+    for _ in range(self.l - 2):
       self.w_s += [
           nn.Parameter(w_scale * t.randn(self.d, self.n, self.m, self.m))
       ]

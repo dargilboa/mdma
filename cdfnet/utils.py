@@ -255,7 +255,7 @@ def create_loaders(data, batch_size):
 
 
 def shorten(s):
-  return ''.join([w[0] for w in s.split('_')])
+  return ''.join([w[0] if len(w) > 2 else w for w in s.split('_')])
 
 
 def str2bool(v):

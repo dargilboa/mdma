@@ -29,18 +29,23 @@ def get_default_h(parent=None):
       default='',
       choices=['', 'gas', 'bsds300', 'hepmass', 'miniboone', 'power'])
   # architecture
+  h_parser.add_argument('--type',
+                        type=str,
+                        default='CP1Net',
+                        choices=['CP1Net', 'CDFNet'])
   h_parser.add_argument('--n', type=int, default=100)
+  h_parser.add_argument('--r', type=int, default=100)
   h_parser.add_argument('--m', type=int, default=5)
-  h_parser.add_argument('--L', type=int, default=4)
+  h_parser.add_argument('--l', type=int, default=4)
   # initialization
   h_parser.add_argument('--w_std', type=float, default=.1)
   h_parser.add_argument('--b_std', type=float, default=0)
   h_parser.add_argument('--b_bias', type=float, default=0)
   h_parser.add_argument('--a_std', type=float, default=.1)
   # fitting
-  h_parser.add_argument('--n_epochs', '-ne', type=int, default=10)
+  h_parser.add_argument('--epochs', '-ne', type=int, default=10)
   h_parser.add_argument('--batch_size', '-b', type=int, default=100)
-  h_parser.add_argument('--lambda_l2', type=float, default=0)
+  h_parser.add_argument('--l2', type=float, default=0)
   h_parser.add_argument('--opt',
                         type=str,
                         default='adam',
@@ -86,7 +91,7 @@ def fit_neural_copula(
   :param data: A list of train, val and test dataloaders
   :return:
   """
-  n_iters = h.n_epochs * h.M // h.batch_size
+  n_iters = h.epochs * h.M // h.batch_size
   print(h)
   print(f"Running {n_iters} iterations.")
 
@@ -117,11 +122,9 @@ def fit_neural_copula(
     val_nll = eval_nll(model, val_loader)
   clip_max_norm = 0
   tic = time.time()
-  for epoch in range(h.n_epochs):
+  for epoch in range(h.epochs):
     for batch_idx, batch in enumerate(train_loader):
       batch_data = batch[0]
-      # import pdb
-      # pdb.set_trace()
 
       # update parameters
       optimizer.zero_grad()
@@ -197,23 +200,39 @@ def eval_nll(model, loader):
 
 
 def initialize(h):
-  model = models.CDFNet(
-      h.d,
-      n=h.n,
-      L=h.L,
-      m=h.m,
-      w_std=h.w_std,
-      b_bias=h.b_bias,
-      b_std=h.b_std,
-      a_std=h.a_std,
-  )
+  if h.type == 'CDFNet':
+    model = models.CDFNet(
+        h.d,
+        n=h.n,
+        l=h.l,
+        m=h.m,
+        w_std=h.w_std,
+        b_bias=h.b_bias,
+        b_std=h.b_std,
+        a_std=h.a_std,
+    )
+  elif h.type == 'CP1Net':
+    model = models.CP1Net(
+        h.d,
+        n=h.n,
+        r=h.r,
+        l=h.l,
+        m=h.m,
+        w_std=h.w_std,
+        b_bias=h.b_bias,
+        b_std=h.b_std,
+        a_std=h.a_std,
+    )
+  else:
+    raise NameError
+
   if h.opt == 'adam':
     opt_type = optim.Adam
   elif h.opt == 'sgd':
     opt_type = optim.SGD
   else:
     raise NameError
-  optimizer = opt_type(model.parameters(), lr=h.lr, weight_decay=h.lambda_l2)
+  optimizer = opt_type(model.parameters(), lr=h.lr, weight_decay=h.l2)
   scheduler = t.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                      verbose=True,
                                                      patience=h.patience,
@@ -240,7 +259,8 @@ def load_checkpoint(model, optimizer, scheduler, iter, checkpoint_to_load):
 
 def get_tb_path(h):
   fields = [
-      'dataset', 'n', 'm', 'L', 'batch_size', 'n_epochs', 'lr', 'patience'
+      'dataset', 'type', 'n', 'r', 'm', 'l', 'batch_size', 'epochs', 'lr',
+      'patience', 'l2'
   ]
   dt_str = str(datetime.datetime.now())[:-7].replace(' ',
                                                      '-').replace(':', '-')

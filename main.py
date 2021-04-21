@@ -21,10 +21,10 @@ h = fit.get_default_h()
 h.M = 2000
 h.M_val = 500
 h.d = d
-h.n_epochs = 1000
+h.epochs = 1000
 h.batch_size = 2000
 h.n = 100
-h.lambda_l2 = 1e-5
+h.l2 = 1e-5
 h.lr = 5e-3
 h.fit_marginals = True
 
@@ -62,9 +62,9 @@ h.M = 2000
 h.batch_size = 2000
 h.M_val = 500
 h.d = d
-h.n_epochs = 600
+h.epochs = 600
 h.n = 100
-h.lambda_l2 = 1e-5
+h.l2 = 1e-5
 h.lr = 5e-3
 h.fit_marginals = False
 
@@ -137,7 +137,7 @@ for r in range(n_reps):
       h.d = d
       h.n_iters = n_iters
       h.n = 100
-      h.lambda_l2 = 1e-5
+      h.l2 = 1e-5
       h.lambda_hess_diag = 0
       h.checkpoint_every = n_iters
       h.fit_marginals = False
