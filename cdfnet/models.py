@@ -34,7 +34,6 @@ class CP1Net(nn.Module):
     self.a_std = a_std
     self.b_std = b_std
     self.b_bias = b_bias
-    self.phidot_expr = [[None, None] for w in range(0, l)]
 
     # initialize parameters for marginal CDFs
     assert self.l >= 2
@@ -52,35 +51,38 @@ class CP1Net(nn.Module):
 
     self.w_s += [nn.Parameter(w_scale * t.randn(self.r, self.m))]
     self.b_s += [nn.Parameter(self.b_std * t.randn(self.r))]
-    # for the a^{z,i}
-    self.a_s += [nn.Parameter(self.a_std * t.randn(self.n, self.d, self.r))]
-    # for the a_z
-    self.a_s += [nn.Parameter(self.a_std * t.randn(self.n))]
+
+    # for the a^{z,i} and the a_z
+    self.a = t.nn.ParameterList([
+        nn.Parameter(self.a_std * t.randn(self.n, self.d, self.r)),
+        nn.Parameter(self.a_std * t.randn(self.n))
+    ])
 
   def phidots(self, X, inds=...):
     # X is a m x dim(inds) tensor
     # returns m x dim(inds) x r tensor
-    phis = self.expand_X(X)  # m x dim(inds) x r x 1
+    # X = self.expand_X(X)  # m x dim(inds) x r x 1
 
+    phis = X
     phidots = t.ones_like(phis)
-    for w, b, a in zip(self.w_s[:-1], self.b_s[:-1], self.a_s[:-2]):
+    for w, b, a in zip(self.w_s[:-1], self.b_s[:-1], self.a_s[:]):
       w = self.nonneg_m(w)
       a = t.tanh(a)
       phis = t.einsum('ijlk,lmk->ijlm', phis, w) + b
       phidots = t.einsum('ijlk,lmk->ijlm', phidots,
                          w) * (1 + a * utils.tanhdot(phis))
-
       phis = phis + a * t.tanh(phis)
 
     w = self.nonneg_m(self.w_s[-1])
     phis = t.einsum('ijlk,lk->ijl', phis, w) + self.b_s[-1]
     phidots = t.einsum('ijlk,lk->ijl', phidots, w) * utils.sigmoiddot(phis)
+    phis = utils.sigmoid(phis)
 
     fm = -t.log(phidots + 1e-10).detach()
     fm = fm.mean(1, True)  # mean over d
     fm = fm.min(2, True)[0]  # min over r
 
-    return phidots, fm.squeeze()  # m x dim(inds) x r x 1
+    return phidots, phis, fm.squeeze()  # m x dim(inds) x r x 1
 
   def expand_X(self, X):
     if len(X.shape) == 1:
@@ -93,19 +95,27 @@ class CP1Net(nn.Module):
     # Evaluate joint likelihood at X
     # X : m x d tensor of sample points
     # inds : list of indices to restrict to (if interested in a subset of variables)
+    X.requires_grad = True  # for debugging
+    X = self.expand_X(X)
+    phidots, phis, fm = self.phidots(X, inds)
 
-    phidots, fm = self.phidots(X, inds)
+    # import pdb
+    # pdb.set_trace()
+    # f = phis[:, :, :].sum()
+    # phidots2 = t.autograd.grad(f, X)[0]
+    # phidots[0:2, 0:2, 0:2].squeeze()
+    # phidots2[0:2, 0:2, 0:2].squeeze()
 
     # those are the a^{z,i} from the paper
-    a = self.nonneg(self.a_s[-2])[:, inds, :]
-    a = a / a.sum(1, keepdims=True)  # normalize for each d
+    a = self.nonneg(self.a[0])[:, inds, :]
+    a = a / a.sum(dim=1, keepdims=True)  # normalize for each d
 
     # tensor x representation functions
     phidots = phidots.unsqueeze(1).expand(-1, self.n, -1, -1) * a
     # this is the a_z from the paper
-    a = self.nonneg(self.a_s[-1])
+    a = self.nonneg(self.a[1])
     # sum over representation functions, prod over d, sum over nodes
-    f = einsum('mi,i->m', phidots.sum(3).prod(2), a / a.sum())
+    f = einsum('mi,i->m', phidots.sum(dim=3).prod(dim=2), a / a.sum())
     return f, fm
 
   def log_density(self, X, inds=...):

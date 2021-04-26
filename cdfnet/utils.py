@@ -37,7 +37,7 @@ class linear_interp():
 
 
 def sigmoid(x):
-  return 1 / (1 + np.exp(-x))
+  return 1 / (1 + t.exp(-x))
 
 
 def invsigmoid(x, eps=1e-15):
