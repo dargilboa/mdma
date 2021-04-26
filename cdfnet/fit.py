@@ -46,7 +46,7 @@ def get_default_h(parent=None):
                         default='adam',
                         choices=['adam', 'sgd'])
   h_parser.add_argument('--lr', type=float, default=5e-3)
-  h_parser.add_argument('--patience', '-p', type=int, default=50)
+  h_parser.add_argument('--patience', '-p', type=int, default=200)
   # logging
   h_parser.add_argument('--data_dir', type=str, default='data/data')
   h_parser.add_argument('--use_tb', type=utils.str2bool, default=False)
@@ -64,11 +64,12 @@ def get_default_h(parent=None):
   h_parser.add_argument('--save_path', type=str, default='data/checkpoint')
   h_parser.add_argument('--checkpoint_every', '-ce', type=int, default=200)
   h_parser.add_argument('--eval_validation', type=utils.str2bool, default=True)
-  h_parser.add_argument('--val_every', '-ve', type=int, default=200)
+  h_parser.add_argument('--val_every', '-ve', type=int, default=1000)
   h_parser.add_argument('--eval_test',
                         '-et',
                         type=utils.str2bool,
                         default=True)
+  h_parser.add_argument('--test_every', '-te', type=int, default=1000)
   h_parser.add_argument('--verbose', '-v', type=utils.str2bool, default=True)
   h_parser.add_argument('--print_every', '-pe', type=int, default=20)
   h_parser.add_argument('--max_iters', type=int, default=None)
@@ -108,10 +109,11 @@ def fit_neural_copula(
                                                       h.model_to_load)
 
   total_params = sum(p.numel() for p in model.parameters())
-  print(h)
   print(
       f"Running {n_iters} iterations. Model contains {total_params} parameters."
   )
+  h.total_params = total_params
+  print(h)
 
   # set up data loaders
   train_loader, val_loader, test_loader = data
@@ -130,12 +132,10 @@ def fit_neural_copula(
       # pdb.set_trace()
 
       # update parameters
-      optimizer.zero_grad()
+      for param in model.parameters():
+        param.grad = None
 
-      if h.use_HT:
-        nll = model.nll_HT(batch_data)
-      else:
-        nll = model.nll(batch_data)
+      nll = model.nll(batch_data)
       nll.backward()
 
       if clip_max_norm > 0:
@@ -144,22 +144,17 @@ def fit_neural_copula(
       optimizer.step()
       scheduler.step(nll)
 
-      # # add noise to small weights
-      # with t.no_grad():
-      #   small_a_inds = t.where(model.a_s[-1] < -1)[0]
-      #   for param in model.parameters():
-      #     if len(param.shape) > 1:
-      #       # param.add_((t.abs(param) < 0.5 * t.mean(t.abs(param))) *
-      #       #            t.std(param) * t.randn(param.size()) * 0.5)
-      #       param[:, small_a_inds, ...].add_(
-      #           t.std(param) * t.randn(param[:, small_a_inds, ...].size()) *
-      #           0.1)
-      #     else:
-      #       # these are last layer weights
-      #       param[small_a_inds] = 1
-
       if h.eval_validation and iter % h.val_every == 0:
         val_nll = eval_nll(model, val_loader)
+        print(f'iteration {iter}, validation nll: {val_nll:.4f}')
+        if h.use_tb:
+          writer.add_scalar('loss/validation', val_nll, iter)
+
+      if h.eval_test and iter % h.test_every == 0:
+        test_nll = eval_nll(model, test_loader)
+        print(f'iteration {iter}, test nll: {test_nll:.4f}')
+        if h.use_tb:
+          writer.add_scalar('loss/validation', test_nll, iter)
 
       if h.verbose and iter % h.print_every == 0:
         print_str = f'iteration {iter}, train nll: {nll.cpu().detach().numpy():.4f}'
@@ -167,7 +162,7 @@ def fit_neural_copula(
           print_str += f', val nll: {val_nll:.4f}'
 
         toc = time.time()
-        print_str += f', elapsed: {toc - tic:.4f}'
+        print_str += f', elapsed: {toc - tic:.4f}, {h.print_every / (toc - tic):.4f} iterations per sec.'
         tic = time.time()
         print(print_str)
 
@@ -183,8 +178,6 @@ def fit_neural_copula(
       if h.use_tb:
         writer.add_scalar('lr', optimizer.param_groups[0]['lr'], iter)
         writer.add_scalar('loss/train', nll.item(), iter)
-        if h.eval_validation:
-          writer.add_scalar('loss/validation', val_nll, iter)
 
       iter += 1
       if h.max_iters is not None and iter == h.max_iters:
@@ -199,10 +192,12 @@ def fit_neural_copula(
 
 
 def eval_nll(model, loader):
-  val_nll = 0
-  for batch_idx, batch in enumerate(loader):
-    batch_data = batch[0]
-    val_nll += model.nll(batch_data).cpu().detach().numpy()
+  with t.no_grad():
+    val_nll = 0
+    nll = model.nll
+    for batch_idx, batch in enumerate(loader):
+      batch_data = batch[0]
+      val_nll += nll(batch_data).cpu().detach().numpy()
   return val_nll / (batch_idx + 1)
 
 
@@ -228,10 +223,6 @@ def initialize(h):
                                                      patience=h.patience,
                                                      min_lr=1e-5,
                                                      factor=0.5)
-  # scheduler = t.optim.lr_scheduler.CyclicLR(optimizer,
-  #                                           base_lr=1e-5,
-  #                                           max_lr=0.1,
-  #                                           cycle_momentum=False)
   iter = 0
   return model, optimizer, scheduler, iter
 

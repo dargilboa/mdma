@@ -4,8 +4,8 @@ import numpy as np
 
 #from experiments.BNAF.data.gas import GAS
 #from experiments.BNAF.data.bsds300 import BSDS300
-#from experiments.BNAF.data.hepmass import HEPMASS
-#from experiments.BNAF.data.miniboone import MINIBOONE
+from experiments.BNAF.data.hepmass import HEPMASS
+from experiments.BNAF.data.miniboone import MINIBOONE
 from experiments.BNAF.data.power import POWER
 
 np.random.seed(0)

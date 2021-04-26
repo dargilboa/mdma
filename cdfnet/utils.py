@@ -44,10 +44,12 @@ def invsigmoid(x, eps=1e-15):
   return t.log(x + eps) - t.log(1 - x + eps)
 
 
+@t.jit.script
 def sigmoiddot(x):
   return t.sigmoid(x) * (1 - t.sigmoid(x))
 
 
+@t.jit.script
 def tanhdot(x):
   return 4 * t.exp(-2 * t.abs(x)) / (t.exp(-2 * t.abs(x)) + 1)**2
 
