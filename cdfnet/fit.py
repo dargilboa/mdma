@@ -119,7 +119,6 @@ def fit_neural_copula(
 
   # fit neural copula to data
   if h.eval_validation:
-    optimizer.zero_grad()
     val_nll = eval_nll(model, val_loader)
   clip_max_norm = 0
   tic = time.time()
@@ -157,6 +156,7 @@ def fit_neural_copula(
         val_nll = eval_nll(model, val_loader)
 
       if h.verbose and iter % h.print_every == 0:
+
         print_str = f'iteration {iter}, train nll: {nll.cpu().detach().numpy():.4f}'
         if h.eval_validation:
           print_str += f', val nll: {val_nll:.4f}'

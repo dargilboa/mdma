@@ -58,10 +58,10 @@ class CP1Net(nn.Module):
         nn.Parameter(self.a_std * t.randn(self.n))
     ])
 
-  def phidots(self, X, inds=...):
-    # X is a m x dim(inds) tensor
-    # returns m x dim(inds) x r tensor
-    # X = self.expand_X(X)  # m x dim(inds) x r x 1
+  def phidots(self, X):
+    # X is a m x d tensor
+    # returns m x d x r tensor
+    # X = self.expand_X(X)  # m x d x r x 1
 
     phis = X
     phidots = t.ones_like(phis)
@@ -80,7 +80,7 @@ class CP1Net(nn.Module):
 
     fm = -t.log(phidots + 1e-10).detach()
     fm = fm.mean(1, True)  # mean over d
-    fm = fm.min(2, True)[0]  # min over r
+    fm = fm.max(2, True)[0]  # max over r
 
     return phidots, phis, fm.squeeze()  # m x dim(inds) x r x 1
 
@@ -95,27 +95,22 @@ class CP1Net(nn.Module):
     # Evaluate joint likelihood at X
     # X : m x d tensor of sample points
     # inds : list of indices to restrict to (if interested in a subset of variables)
-    X.requires_grad = True  # for debugging
+
     X = self.expand_X(X)
-    phidots, phis, fm = self.phidots(X, inds)
-
-    # import pdb
-    # pdb.set_trace()
-    # f = phis[:, :, :].sum()
-    # phidots2 = t.autograd.grad(f, X)[0]
-    # phidots[0:2, 0:2, 0:2].squeeze()
-    # phidots2[0:2, 0:2, 0:2].squeeze()
-
+    phidots, phis, fm = self.phidots(X)
     # those are the a^{z,i} from the paper
     a = self.nonneg(self.a[0])[:, inds, :]
     a = a / a.sum(dim=1, keepdims=True)  # normalize for each d
 
     # tensor x representation functions
     phidots = phidots.unsqueeze(1).expand(-1, self.n, -1, -1) * a
+    # sum over d, product over n, and regularize
+    phidots = phidots.sum(dim=3).prod(dim=2)  #* t.exp(-fm).unsqueeze(1)
+
     # this is the a_z from the paper
     a = self.nonneg(self.a[1])
-    # sum over representation functions, prod over d, sum over nodes
-    f = einsum('mi,i->m', phidots.sum(dim=3).prod(dim=2), a / a.sum())
+    # sum over nodes
+    f = einsum('mi,i->m', phidots, a / a.sum())
     return f, fm
 
   def log_density(self, X, inds=...):
@@ -124,7 +119,7 @@ class CP1Net(nn.Module):
       n_vars = self.d
     else:
       n_vars = len(inds)
-    return t.log(lk + 1e-10)
+    return t.log(lk + 1e-10)  #+ fm
 
   def nll(self, X, inds=...):
     # negative log likelihood
