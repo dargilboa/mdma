@@ -29,6 +29,10 @@ def get_default_h(parent=None):
       default='',
       choices=['', 'gas', 'bsds300', 'hepmass', 'miniboone', 'power'])
   # architecture
+  h_parser.add_argument('--type',
+                        type=str,
+                        default='TenNet',
+                        choices=['TenNet', 'CDFNet'])
   h_parser.add_argument('--n', type=int, default=100)
   h_parser.add_argument('--m', type=int, default=5)
   h_parser.add_argument('--L', type=int, default=4)
@@ -146,6 +150,8 @@ def fit_neural_copula(
 
       if h.eval_validation and iter % h.val_every == 0:
         val_nll = eval_nll(model, val_loader)
+        # import pdb
+        # pdb.set_trace()
         print(f'iteration {iter}, validation nll: {val_nll:.4f}')
         if h.use_tb:
           writer.add_scalar('loss/validation', val_nll, iter)
@@ -202,15 +208,30 @@ def eval_nll(model, loader):
 
 
 def initialize(h):
-  model = models.CDFNet(h.d,
-                        n=h.n,
-                        L=h.L,
-                        m=h.m,
-                        w_std=h.w_std,
-                        b_bias=h.b_bias,
-                        b_std=h.b_std,
-                        a_std=h.a_std,
-                        use_HT=h.use_HT)
+
+  if h.type == 'CDFNet':
+    model = models.CDFNet(h.d,
+                          n=h.n,
+                          L=h.L,
+                          m=h.m,
+                          w_std=h.w_std,
+                          b_bias=h.b_bias,
+                          b_std=h.b_std,
+                          a_std=h.a_std,
+                          use_HT=h.use_HT)
+  elif h.type == 'TenNet':
+    model = models.TenNet(h.d,
+                          n=h.n,
+                          L=h.L,
+                          m=h.m,
+                          w_std=h.w_std,
+                          b_bias=h.b_bias,
+                          b_std=h.b_std,
+                          a_std=h.a_std,
+                          use_HT=h.use_HT)
+  else:
+    raise NameError
+
   if h.opt == 'adam':
     opt_type = optim.Adam
   elif h.opt == 'sgd':
@@ -240,7 +261,8 @@ def load_checkpoint(model, optimizer, scheduler, iter, checkpoint_to_load):
 
 def get_tb_path(h):
   fields = [
-      'dataset', 'n', 'm', 'L', 'batch_size', 'n_epochs', 'lr', 'patience'
+      'dataset', 'type', 'n', 'm', 'L', 'batch_size', 'n_epochs', 'lr',
+      'patience'
   ]
   dt_str = str(datetime.datetime.now())[:-7].replace(' ',
                                                      '-').replace(':', '-')
