@@ -2,32 +2,42 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch as t
-import models
-import fit
-import utils
+import cdfnet.fit as fit
+import cdfnet.utils as utils
 from mpl_toolkits import mplot3d
 from experiments.BNAF.data.generate2d import sample2d
 
+save_plots = True
+dataset_name = 'gaussians'
+M = 20000
+save_dir = 'Copula Estimation with Neural Networks/figs/'
+
 #%% generate data
 rng = np.random.RandomState()
-M = 20000
-scale = 4.
-centers = [[1, 0, -1], [-1, 0, .14], [0, 1, -.43], [0, -1, .71],
-           [1. / np.sqrt(2), 1. / np.sqrt(2), -.71],
-           [1. / np.sqrt(2), -1. / np.sqrt(2), 1],
-           [-1. / np.sqrt(2), 1. / np.sqrt(2), -.14],
-           [-1. / np.sqrt(2), -1. / np.sqrt(2), .43]]
-centers = scale * np.array(centers)
+if dataset_name == 'gaussians':
+  scale = 4.
+  centers = [[1, 0, -1], [-1, 0, .14], [0, 1, -.43], [0, -1, .71],
+             [1. / np.sqrt(2), 1. / np.sqrt(2), -.71],
+             [1. / np.sqrt(2), -1. / np.sqrt(2), 1],
+             [-1. / np.sqrt(2), 1. / np.sqrt(2), -.14],
+             [-1. / np.sqrt(2), -1. / np.sqrt(2), .43]]
+  centers = scale * np.array(centers)
 
-dataset = []
-for i in range(M):
-  point = rng.randn(3) * 0.5
-  idx = rng.randint(8)
-  center = centers[idx]
-  point += center
-  dataset.append(point)
-dataset = np.array(dataset, dtype='float32')
-dataset /= 1.414
+  dataset = []
+  for i in range(M):
+    point = rng.randn(3) * 0.5
+    idx = rng.randint(8)
+    center = centers[idx]
+    point += center
+    dataset.append(point)
+  dataset = np.array(dataset, dtype='float32')
+  dataset /= 1.414
+elif dataset_name == 'spirals':
+  n = np.sqrt(np.random.rand(M // 2, 1)) * 540 * (2 * np.pi) / 360
+  d1x = -np.cos(n) * n + np.random.rand(M // 2, 1) * 0.5
+  d1y = np.sin(n) * n + np.random.rand(M // 2, 1) * 0.5
+  x = np.vstack((np.hstack((d1x, d1y)), np.hstack((-d1x, -d1y)))) / 3
+  x += np.random.randn(*x.shape) * 0.1
 
 #%% plot data
 plt.figure()
@@ -38,6 +48,8 @@ colors[:, 2] = (np.max(dataset[:, 1]) - dataset[:, 1]) + 2
 colors[:, 2] = colors[:, 2] / np.max(colors[:, 2])
 ax.scatter3D(dataset[:, 0], dataset[:, 1], dataset[:, 2], c=colors)
 ax.view_init(elev=30., azim=45)
+if save_plots:
+  plt.savefig(save_dir + '_'.join(['3d', dataset_name, 'data']))
 plt.show()
 
 #%% create model and fit
@@ -196,11 +208,3 @@ model_log_density = np.exp(outs['model'].log_density(
     t.tensor(xs).float(), inds=[2]).cpu().detach().numpy())
 plt.plot(xs, model_log_density)
 plt.show()
-
-#%% spiral
-M = 20000
-n = np.sqrt(np.random.rand(M // 2, 1)) * 540 * (2 * np.pi) / 360
-d1x = -np.cos(n) * n + np.random.rand(M // 2, 1) * 0.5
-d1y = np.sin(n) * n + np.random.rand(M // 2, 1) * 0.5
-x = np.vstack((np.hstack((d1x, d1y)), np.hstack((-d1x, -d1y)))) / 3
-x += np.random.randn(*x.shape) * 0.1
