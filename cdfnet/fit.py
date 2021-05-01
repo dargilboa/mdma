@@ -47,6 +47,7 @@ def get_default_h(parent=None):
                         choices=['adam', 'sgd'])
   h_parser.add_argument('--lr', type=float, default=5e-3)
   h_parser.add_argument('--patience', '-p', type=int, default=200)
+  h_parser.add_argument('--stable_nll_iters', type=int, default=5)
   # logging
   h_parser.add_argument('--data_dir', type=str, default='data/data')
   h_parser.add_argument('--use_tb', type=utils.str2bool, default=False)
@@ -102,6 +103,7 @@ def fit_neural_copula(
     save_path = tb_path
     from tensorboardX import SummaryWriter
     writer = SummaryWriter(tb_path)
+    print('Saving tensorboard logs to ' + tb_path)
 
   model, optimizer, scheduler, iter = initialize(h)
   model, optimizer, scheduler, iter = load_checkpoint(model, optimizer,
@@ -136,13 +138,22 @@ def fit_neural_copula(
         param.grad = None
 
       nll = model.nll(batch_data)
-      nll.backward()
+      # use stabilized nll if needed
+      if iter < h.stable_nll_iters:
+        obj = model.nll(batch_data, stabilize=True)
+      else:
+        obj = nll
+
+      obj.backward()
+      # check_stabilizer = True
+      # if check_stabilizer:
+      #   unstab_nll = model.unstabilized_nll(batch_data)
 
       if clip_max_norm > 0:
         t.nn.utils.clip_grad_value_(model.parameters(), clip_max_norm)
 
       optimizer.step()
-      scheduler.step(nll)
+      scheduler.step(obj)
 
       if h.eval_validation and iter % h.val_every == 0:
         val_nll = eval_nll(model, val_loader)
@@ -161,6 +172,10 @@ def fit_neural_copula(
         if h.eval_validation:
           print_str += f', val nll: {val_nll:.4f}'
 
+        # check_stabilizer = True
+        # if check_stabilizer:
+        #   print_str += f', unstab nll: {unstab_nll.cpu().detach().numpy():.4f}'
+
         toc = time.time()
         print_str += f', elapsed: {toc - tic:.4f}, {h.print_every / (toc - tic):.4f} iterations per sec.'
         tic = time.time()
@@ -178,6 +193,8 @@ def fit_neural_copula(
       if h.use_tb:
         writer.add_scalar('lr', optimizer.param_groups[0]['lr'], iter)
         writer.add_scalar('loss/train', nll.item(), iter)
+        # if check_stabilizer:
+        #   writer.add_scalar('loss/train_unstab', unstab_nll.item(), iter)
 
       iter += 1
       if h.max_iters is not None and iter == h.max_iters:
