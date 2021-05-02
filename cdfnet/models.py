@@ -387,7 +387,7 @@ class CDFNet(nn.Module):
       all_couplings.append(couplings)
     return all_couplings
 
-  def create_adaptive_couplings(self, X):
+  def create_adaptive_couplings(self, batches):
     # Assumes the data is standardized
     all_couplings = []
     if self.HT_poolsize > 2:
@@ -397,7 +397,10 @@ class CDFNet(nn.Module):
       pool_layer = AvgPool2d(kernel_size=self.HT_poolsize,
                              stride=self.HT_poolsize,
                              ceil_mode=True)
-      Sigma = t.matmul(X.transpose(0, 1), X)
+      Sigma = t.zeros((self.d, self.d))
+      for X in batches:
+        Sigma += t.matmul(X.transpose(0, 1), X)
+
       dim_l = self.d
       for _ in range(self.L_HT):
         # add couples at layer l

@@ -32,6 +32,10 @@ def get_default_h(parent=None):
   h_parser.add_argument('--n', type=int, default=100)
   h_parser.add_argument('--m', type=int, default=5)
   h_parser.add_argument('--L', type=int, default=4)
+  h_parser.add_argument('--use_HT', type=utils.str2bool, default=False)
+  h_parser.add_argument('--adaptive_coupling',
+                        type=utils.str2bool,
+                        default=False)
   # initialization
   h_parser.add_argument('--w_std', type=float, default=.1)
   h_parser.add_argument('--b_std', type=float, default=0)
@@ -74,10 +78,6 @@ def get_default_h(parent=None):
   h_parser.add_argument('--verbose', '-v', type=utils.str2bool, default=True)
   h_parser.add_argument('--print_every', '-pe', type=int, default=20)
   h_parser.add_argument('--max_iters', type=int, default=None)
-  h_parser.add_argument('--use_HT', type=utils.str2bool, default=False)
-  h_parser.add_argument('--adaptive_coupling',
-                        type=utils.str2bool,
-                        default=False)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -90,7 +90,7 @@ def fit_neural_copula(
   """
   :param h: hyperparameters in the form of an argparser
   :param data: A list of train, val and test dataloaders
-  :return:
+  :return: The fitted model
   """
   n_iters = h.n_epochs * h.M // h.batch_size
 
@@ -129,8 +129,7 @@ def fit_neural_copula(
   if h.eval_validation:
     val_nll = eval_nll(model, val_loader)
   if h.use_HT and h.adaptive_coupling:
-    model.create_adaptive_couplings(next(iter(train_loader))[0])
-    print('Using adaptive variable coupling')
+    set_adaptive_coupling(h, model, train_loader)
   clip_max_norm = 0
   tic = time.time()
   for epoch in range(h.n_epochs):
@@ -268,3 +267,11 @@ def get_tb_path(h):
   folder_name.replace('.', 'p')
   tb_path = h.tb_dir + '/' + folder_name
   return tb_path
+
+
+def set_adaptive_coupling(h, model, train_loader):
+  n_batches = 10 * h.d**2 // h.batch_size + 1
+  train_iter = iter(train_loader)
+  batches = [next(train_iter)[0] for _ in range(n_batches)]
+  model.create_adaptive_couplings(batches)
+  print('Using adaptive variable coupling')
