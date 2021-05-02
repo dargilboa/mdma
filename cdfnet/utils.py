@@ -6,6 +6,7 @@ from torch.distributions.normal import Normal
 from torch.utils.data import TensorDataset, DataLoader
 import argparse
 import os
+import matplotlib.pyplot as plt
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -266,3 +267,8 @@ def str2bool(v):
     return False
   else:
     raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
+def save_file(file_name):
+  plt.savefig(file_name)
+  os.system('pdfcrop "' + file_name + '" "' + file_name + '"')

@@ -75,6 +75,9 @@ def get_default_h(parent=None):
   h_parser.add_argument('--print_every', '-pe', type=int, default=20)
   h_parser.add_argument('--max_iters', type=int, default=None)
   h_parser.add_argument('--use_HT', type=utils.str2bool, default=False)
+  h_parser.add_argument('--adaptive_coupling',
+                        type=utils.str2bool,
+                        default=False)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -105,9 +108,9 @@ def fit_neural_copula(
     writer = SummaryWriter(tb_path)
     print('Saving tensorboard logs to ' + tb_path)
 
-  model, optimizer, scheduler, iter = initialize(h)
-  model, optimizer, scheduler, iter = load_checkpoint(model, optimizer,
-                                                      scheduler, iter,
+  model, optimizer, scheduler, step = initialize(h)
+  model, optimizer, scheduler, step = load_checkpoint(model, optimizer,
+                                                      scheduler, step,
                                                       h.model_to_load)
 
   total_params = sum(p.numel() for p in model.parameters())
@@ -125,6 +128,9 @@ def fit_neural_copula(
   # fit neural copula to data
   if h.eval_validation:
     val_nll = eval_nll(model, val_loader)
+  if h.use_HT and h.adaptive_coupling:
+    model.create_adaptive_couplings(next(iter(train_loader))[0])
+    print('Using adaptive variable coupling')
   clip_max_norm = 0
   tic = time.time()
   for epoch in range(h.n_epochs):
@@ -137,17 +143,15 @@ def fit_neural_copula(
       for param in model.parameters():
         param.grad = None
 
-      nll = model.nll(batch_data)
       # use stabilized nll if needed
-      if iter < h.stable_nll_iters:
+      if step < h.stable_nll_iters:
+        nll_value = model.nll(batch_data).item()
         obj = model.nll(batch_data, stabilize=True)
       else:
-        obj = nll
+        obj = model.nll(batch_data)
+        nll_value = obj.item()
 
       obj.backward()
-      # check_stabilizer = True
-      # if check_stabilizer:
-      #   unstab_nll = model.unstabilized_nll(batch_data)
 
       if clip_max_norm > 0:
         t.nn.utils.clip_grad_value_(model.parameters(), clip_max_norm)
@@ -155,56 +159,50 @@ def fit_neural_copula(
       optimizer.step()
       scheduler.step(obj)
 
-      if h.eval_validation and iter % h.val_every == 0:
+      if h.eval_validation and step % h.val_every == 0:
         val_nll = eval_nll(model, val_loader)
-        print(f'iteration {iter}, validation nll: {val_nll:.4f}')
+        print(f'iteration {step}, validation nll: {val_nll:.4f}')
         if h.use_tb:
-          writer.add_scalar('loss/validation', val_nll, iter)
+          writer.add_scalar('loss/validation', val_nll, step)
 
-      if h.eval_test and iter % h.test_every == 0:
+      if h.eval_test and step % h.test_every == 0:
         test_nll = eval_nll(model, test_loader)
-        print(f'iteration {iter}, test nll: {test_nll:.4f}')
+        print(f'iteration {step}, test nll: {test_nll:.4f}')
         if h.use_tb:
-          writer.add_scalar('loss/validation', test_nll, iter)
+          writer.add_scalar('loss/validation', test_nll, step)
 
-      if h.verbose and iter % h.print_every == 0:
-        print_str = f'iteration {iter}, train nll: {nll.cpu().detach().numpy():.4f}'
+      if h.verbose and step % h.print_every == 0:
+        print_str = f'iteration {step}, train nll: {nll_value:.4f}'
         if h.eval_validation:
           print_str += f', val nll: {val_nll:.4f}'
-
-        # check_stabilizer = True
-        # if check_stabilizer:
-        #   print_str += f', unstab nll: {unstab_nll.cpu().detach().numpy():.4f}'
 
         toc = time.time()
         print_str += f', elapsed: {toc - tic:.4f}, {h.print_every / (toc - tic):.4f} iterations per sec.'
         tic = time.time()
         print(print_str)
 
-      if h.save_checkpoints and (iter + 1) % h.checkpoint_every == 0:
+      if h.save_checkpoints and (step + 1) % h.checkpoint_every == 0:
         t.save(
             {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'scheduler': scheduler.state_dict(),
-                'iter': iter
+                'step': step
             }, save_path + '/checkpoint.pt')
 
       if h.use_tb:
-        writer.add_scalar('lr', optimizer.param_groups[0]['lr'], iter)
-        writer.add_scalar('loss/train', nll.item(), iter)
-        # if check_stabilizer:
-        #   writer.add_scalar('loss/train_unstab', unstab_nll.item(), iter)
+        writer.add_scalar('lr', optimizer.param_groups[0]['lr'], step)
+        writer.add_scalar('loss/train', nll_value, step)
 
-      iter += 1
-      if h.max_iters is not None and iter == h.max_iters:
+      step += 1
+      if h.max_iters is not None and step == h.max_iters:
         print(f'Terminating after {h.max_iters} iterations.')
         break
 
   if h.eval_test:
     test_nll = eval_nll(model, test_loader)
     if h.use_tb:
-      writer.add_scalar('loss/test', test_nll, iter)
+      writer.add_scalar('loss/test', test_nll, step)
   return model
 
 
@@ -214,7 +212,7 @@ def eval_nll(model, loader):
     nll = model.nll
     for batch_idx, batch in enumerate(loader):
       batch_data = batch[0]
-      val_nll += nll(batch_data).cpu().detach().numpy()
+      val_nll += nll(batch_data).item()
   return val_nll / (batch_idx + 1)
 
 
@@ -227,7 +225,8 @@ def initialize(h):
                         b_bias=h.b_bias,
                         b_std=h.b_std,
                         a_std=h.a_std,
-                        use_HT=h.use_HT)
+                        use_HT=h.use_HT,
+                        adaptive_coupling=h.adaptive_coupling)
   if h.opt == 'adam':
     opt_type = optim.Adam
   elif h.opt == 'sgd':
@@ -240,19 +239,19 @@ def initialize(h):
                                                      patience=h.patience,
                                                      min_lr=1e-5,
                                                      factor=0.5)
-  iter = 0
-  return model, optimizer, scheduler, iter
+  step = 0
+  return model, optimizer, scheduler, step
 
 
-def load_checkpoint(model, optimizer, scheduler, iter, checkpoint_to_load):
+def load_checkpoint(model, optimizer, scheduler, step, checkpoint_to_load):
   if checkpoint_to_load != '':
     print('Loading model..')
     checkpoint = t.load(checkpoint_to_load + '/checkpoint.pt')
     model.load_state_dict(checkpoint['model'])
     optimizer.load_state_dict(checkpoint['optimizer'])
     scheduler.load_state_dict(checkpoint['scheduler'])
-    iter = checkpoint['iter']
-  return model, optimizer, scheduler, iter
+    step = checkpoint['step']
+  return model, optimizer, scheduler, step
 
 
 def get_tb_path(h):

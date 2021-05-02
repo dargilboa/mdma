@@ -4,6 +4,8 @@ import numpy as np
 import torch as t
 import cdfnet.fit as fit
 import cdfnet.utils as utils
+import cdfnet.plots as plots
+import os
 from mpl_toolkits import mplot3d
 from experiments.BNAF.data.generate2d import sample2d
 
@@ -41,15 +43,23 @@ elif dataset_name == 'spirals':
 
 #%% plot data
 plt.figure()
+n_pts_to_plot = 1000
 ax = plt.axes(projection='3d')
 lenX = len(dataset)
-colors = np.array([[0., 0., 0.]] * lenX)
-colors[:, 2] = (np.max(dataset[:, 1]) - dataset[:, 1]) + 2
+colors = np.array([[0., 0., 0.]] * n_pts_to_plot)
+colors[:, 2] = 10 - (np.max(dataset[:n_pts_to_plot, 2]) -
+                     dataset[:n_pts_to_plot, 2]) + 2
 colors[:, 2] = colors[:, 2] / np.max(colors[:, 2])
-ax.scatter3D(dataset[:, 0], dataset[:, 1], dataset[:, 2], c=colors)
-ax.view_init(elev=30., azim=45)
+ax.scatter3D(dataset[:n_pts_to_plot, 0],
+             dataset[:n_pts_to_plot, 1],
+             dataset[:n_pts_to_plot, 2],
+             c=colors)
+ax.view_init(elev=30., azim=55)
+ax.set_xlabel('$x_1$')
+ax.set_ylabel('$x_2$')
+ax.set_zlabel('$x_3$')
 if save_plots:
-  plt.savefig(save_dir + '_'.join(['3d', dataset_name, 'data']))
+  utils.save_file(save_dir + '_'.join(['3d', dataset_name, 'data']) + '.pdf')
 plt.show()
 
 #%% create model and fit
@@ -57,113 +67,90 @@ batch_size = 100
 h = fit.get_default_h()
 h.d = 3
 h.M = M
+h.use_HT = True
+h.n = 1000
+h.model_to_load = ''
+h.save_checkpoints = False
 loaders = utils.create_loaders([dataset, 0, 0], batch_size)
 h.eval_validation = False
-outs = fit.fit_neural_copula(h, loaders)
+h.eval_test = False
+model = fit.fit_neural_copula(h, loaders)
 
-#%% plot fitted density
-grid_res = 20
-xlim = [-3.5, 3.5]
-ylim = [-3.5, 3.5]
-zlim = [-3.5, 3.5]
-batch_size = 200
-
-
-def eval_log_density_on_grid(model,
-                             meshgrid,
-                             inds=...,
-                             grid_res=20,
-                             batch_size=200):
-  flat_grid_on_R = np.array([g.flatten() for g in meshgrid]).transpose()
-  if inds == ...:
-    final_shape = (grid_res, grid_res, grid_res)
-  else:
-    final_shape = (grid_res, grid_res)
-  model_log_density = []
-  for grid_part in np.split(flat_grid_on_R, len(flat_grid_on_R) // batch_size):
-    model_log_density += [
-        model.log_density(t.tensor(grid_part).float(),
-                          inds=inds).cpu().detach().numpy()
-    ]
-  model_log_density = np.concatenate(model_log_density).reshape(final_shape)
-  return model_log_density
-
-
-#%% plot combined
-plt.figure()
-ax = plt.axes(projection='3d')
-from matplotlib import cm
-ub = 4
-lb = -4
-# full
-x_coords = np.linspace(lb, ub, grid_res)
-y_coords = np.linspace(lb, ub, grid_res)
-z_coords = np.linspace(lb, ub, grid_res)
-mg = np.meshgrid(x_coords, y_coords, z_coords)
-iX, iY, iZ = mg
-model_log_density = eval_log_density_on_grid(
-    outs['model'],
-    mg,
-)
-
-#lenX = len(iX.flatten())
-#colors = np.array([[0., 0., 0.]] * lenX)
-#colors[:, 2] = np.abs(iX.flatten()) / np.max(np.abs(iX))
-ax.scatter(iX, iY, iZ, s=10000 * np.exp(model_log_density), alpha=0.5, c='r')
-
-# marginals
-x_coords = np.linspace(lb, ub, grid_res)
-y_coords = np.linspace(lb, ub, grid_res)
-mg = np.meshgrid(x_coords, y_coords)
-iX, iY = mg
-Z = lb * np.ones_like(iX)
-model_log_density = eval_log_density_on_grid(outs['model'], mg, inds=[0, 1])
-fc = cm.viridis(np.exp(model_log_density) / np.max(np.exp(model_log_density)))
-ax.plot_surface(iX, iY, Z, facecolors=fc)
-model_log_density = eval_log_density_on_grid(outs['model'], mg, inds=[1, 2])
-fc = cm.viridis(np.exp(model_log_density) / np.max(np.exp(model_log_density)))
-ax.plot_surface(Z, iX, iY, facecolors=fc)
-model_log_density = eval_log_density_on_grid(outs['model'], mg, inds=[0, 2])
-fc = cm.viridis(np.exp(model_log_density) / np.max(np.exp(model_log_density)))
-ax.plot_surface(iX, Z, iY, facecolors=fc)
-
-ax.set_xlabel('x_1')
-ax.set_ylabel('x_2')
-ax.set_zlabel('x_3')
-ax.view_init(elev=30., azim=45)
-plt.show()
+# #%% plot combined
+# plt.figure()
+# ax = plt.axes(projection='3d')
+# from matplotlib import cm
+# ub = 4
+# lb = -4
+# # full
+# x_coords = np.linspace(lb, ub, grid_res)
+# y_coords = np.linspace(lb, ub, grid_res)
+# z_coords = np.linspace(lb, ub, grid_res)
+# mg = np.meshgrid(x_coords, y_coords, z_coords)
+# iX, iY, iZ = mg
+# model_log_density = eval_log_density_on_grid(
+#     model,
+#     mg,
+# )
+#
+# #lenX = len(iX.flatten())
+# #colors = np.array([[0., 0., 0.]] * lenX)
+# #colors[:, 2] = np.abs(iX.flatten()) / np.max(np.abs(iX))
+# ax.scatter(iX, iY, iZ, s=10000 * np.exp(model_log_density), alpha=0.5, c='r')
+#
+# # marginals
+# x_coords = np.linspace(lb, ub, grid_res)
+# y_coords = np.linspace(lb, ub, grid_res)
+# mg = np.meshgrid(x_coords, y_coords)
+# iX, iY = mg
+# Z = lb * np.ones_like(iX)
+# model_log_density = eval_log_density_on_grid(model, mg, inds=[0, 1])
+# fc = cm.viridis(np.exp(model_log_density) / np.max(np.exp(model_log_density)))
+# ax.plot_surface(iX, iY, Z, facecolors=fc)
+# model_log_density = eval_log_density_on_grid(model, mg, inds=[1, 2])
+# fc = cm.viridis(np.exp(model_log_density) / np.max(np.exp(model_log_density)))
+# ax.plot_surface(Z, iX, iY, facecolors=fc)
+# model_log_density = eval_log_density_on_grid(model, mg, inds=[0, 2])
+# fc = cm.viridis(np.exp(model_log_density) / np.max(np.exp(model_log_density)))
+# ax.plot_surface(iX, Z, iY, facecolors=fc)
+#
+# ax.set_xlabel('x_1')
+# ax.set_ylabel('x_2')
+# ax.set_zlabel('x_3')
+# ax.view_init(elev=30., azim=45)
+# plt.show()
 
 #%% plot separate - 3d density
 plt.figure()
 ax = plt.axes(projection='3d')
-from matplotlib import cm
 ub = 4
 lb = -4
-# full
+grid_res = 20
 x_coords = np.linspace(lb, ub, grid_res)
 y_coords = np.linspace(lb, ub, grid_res)
 z_coords = np.linspace(lb, ub, grid_res)
 mg = np.meshgrid(x_coords, y_coords, z_coords)
 iX, iY, iZ = mg
-model_log_density = eval_log_density_on_grid(
-    outs['model'],
-    mg,
-)
+model_log_density = plots.eval_log_density_on_grid(model,
+                                                   mg,
+                                                   grid_res=grid_res)
 
 lenX = len(iX.flatten())
 colors = np.array([[0., 0., 0.]] * lenX)
-colors[:, 2] = (np.max(iY) - iY.flatten()) + 2
+
+colors[:, 2] = 10 - (np.max(iZ) - iZ.flatten()) + 2
 colors[:, 2] = colors[:, 2] / np.max(colors[:, 2])
-ax.scatter(iX,
-           iY,
-           iZ,
-           s=10000 * np.exp(model_log_density),
-           alpha=0.5,
-           c=colors)
-ax.view_init(elev=30., azim=45)
+ax.scatter(iX, iY, iZ, s=1000 * np.exp(model_log_density), alpha=0.5, c=colors)
+ax.view_init(elev=30., azim=55)
+ax.set_xlabel('$x_1$')
+ax.set_ylabel('$x_2$')
+ax.set_zlabel('$x_3$')
+if save_plots:
+  utils.save_file(save_dir + '_'.join(['3d', dataset_name, '3d_density']) +
+                  '.pdf')
 plt.show()
 
-#%% separate - 2d marginals
+#%% 2d marginals
 ub = 4
 lb = -4
 grid_res = 60
@@ -173,38 +160,64 @@ y_coords = np.linspace(lb, ub, grid_res)
 mg = np.meshgrid(x_coords, y_coords)
 iX, iY = mg
 Z = lb * np.ones_like(iX)
-model_log_density = eval_log_density_on_grid(outs['model'],
-                                             mg,
-                                             inds=[0, 1],
-                                             grid_res=grid_res)
-plt.figure()
-plt.imshow(model_log_density)
-plt.show()
-model_log_density = eval_log_density_on_grid(outs['model'],
-                                             mg,
-                                             inds=[1, 2],
-                                             grid_res=grid_res)
-plt.figure()
-plt.imshow(model_log_density)
-plt.show()
-model_log_density = eval_log_density_on_grid(outs['model'],
-                                             mg,
-                                             inds=[0, 2],
-                                             grid_res=grid_res)
-plt.figure()
-plt.imshow(model_log_density)
-plt.show()
+for vars in [[0, 1], [1, 2], [0, 2]]:
+  model_log_density = plots.eval_log_density_on_grid(model,
+                                                     mg,
+                                                     inds=vars,
+                                                     grid_res=grid_res)
+  plt.figure()
+  plt.imshow(model_log_density, extent=[lb, ub, lb, ub])
+  plt.xlabel('$x_' + str(vars[0] + 1) + '$')
+  plt.ylabel('$x_' + str(vars[1] + 1) + '$')
+  if save_plots:
+    utils.save_file(save_dir + '_'.join(
+        ['3d', dataset_name, '2d_marg_',
+         str(vars[0] + 1),
+         str(vars[1] + 1)]) + '.pdf')
+  plt.show()
+
+#%% 2d conditionals
+ub = 4
+lb = -4
+grid_res = 60
+x_coords = np.linspace(lb, ub, grid_res)
+y_coords = np.linspace(lb, ub, grid_res)
+mg = np.meshgrid(x_coords, y_coords)
+iX, iY = mg
+Z = lb * np.ones_like(iX)
+inds = [0, 1]
+cond_vals = [-2, 0, 2]
+for cond_val in cond_vals:
+  model_cond_density = plots.eval_cond_density_on_grid(model,
+                                                       mg,
+                                                       cond_val,
+                                                       inds=inds,
+                                                       cond_inds=[2])
+
+  plt.figure()
+  plt.imshow(model_cond_density, extent=[lb, ub, lb, ub])
+  plt.xlabel('$x_' + str(vars[0] + 1) + '$')
+  plt.ylabel('$x_' + str(vars[1] + 1) + '$')
+  if save_plots:
+    utils.save_file(save_dir +
+                    '_'.join(['3d', dataset_name, '2d_cond_',
+                              str(cond_val)]) + '.pdf')
+  plt.show()
 
 #%% 1d marginals
 plt.figure()
 xs = np.linspace(-4, 4, 100)
-model_log_density = np.exp(outs['model'].log_density(
-    t.tensor(xs).float(), inds=[0]).cpu().detach().numpy())
+model_log_density = np.exp(
+    model.log_density(t.tensor(xs).float(), inds=[0]).cpu().detach().numpy())
 plt.plot(xs, model_log_density)
-model_log_density = np.exp(outs['model'].log_density(
-    t.tensor(xs).float(), inds=[1]).cpu().detach().numpy())
+model_log_density = np.exp(
+    model.log_density(t.tensor(xs).float(), inds=[1]).cpu().detach().numpy())
 plt.plot(xs, model_log_density)
-model_log_density = np.exp(outs['model'].log_density(
-    t.tensor(xs).float(), inds=[2]).cpu().detach().numpy())
+model_log_density = np.exp(
+    model.log_density(t.tensor(xs).float(), inds=[2]).cpu().detach().numpy())
 plt.plot(xs, model_log_density)
+plt.legend(['$X_1$', '$X_2$', '$X_3$'])
+if save_plots:
+  utils.save_file(save_dir + '_'.join(['3d', dataset_name, '1d_marg']) +
+                  '.pdf')
 plt.show()

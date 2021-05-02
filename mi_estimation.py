@@ -6,7 +6,7 @@ import cdfnet.utils as utils
 import torch as t
 
 
-def run_mi_estimation(d=5,
+def run_mi_estimation(d=10,
                       n_samples=10000,
                       batch_size=1000,
                       M=10000,
@@ -111,8 +111,7 @@ def run_mi_estimation(d=5,
   plt.scatter(ind_rng, mis, label='ground truth')
   all_mi_ests_all_reps = np.mean(all_mi_ests_all_reps,
                                  axis=1)  # mean over sample batches
-  m, s = all_mi_ests_all_reps.mean(
-      axis=0), all_mi_ests_all_reps.std(axis=0) / np.sqrt(len(all_mi_ests))
+  m, s = all_mi_ests_all_reps.mean(axis=0), all_mi_ests_all_reps.std(axis=0)
   plt.scatter(ind_rng, m, label='estimator')
   plt.errorbar(ind_rng,
                m,
