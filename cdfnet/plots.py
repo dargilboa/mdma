@@ -333,12 +333,12 @@ def eval_cond_density_on_grid(
   model_cond_density = []
   split_grid = np.split(flat_grid_on_R, len(flat_grid_on_R) // batch_size)
   for grid_part in split_grid:
-    cond_x = cond_val * t.ones_like(t.Tensor(grid_part)).float()
+    cond_x = cond_val * t.ones((batch_size, 1)).float()
     model_cond_density += [
         model.cond_density(t.tensor(grid_part).float(),
                            inds=inds,
                            cond_X=cond_x,
-                           cond_inds=cond_inds).item()
+                           cond_inds=cond_inds).cpu().detach().numpy()
     ]
   model_cond_density = np.concatenate(model_cond_density).reshape(final_shape)
   return model_cond_density

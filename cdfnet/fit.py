@@ -168,7 +168,7 @@ def fit_neural_copula(
         test_nll = eval_nll(model, test_loader)
         print(f'iteration {step}, test nll: {test_nll:.4f}')
         if h.use_tb:
-          writer.add_scalar('loss/validation', test_nll, step)
+          writer.add_scalar('loss/test', test_nll, step)
 
       if h.verbose and step % h.print_every == 0:
         print_str = f'iteration {step}, train nll: {nll_value:.4f}'
@@ -194,9 +194,10 @@ def fit_neural_copula(
         writer.add_scalar('loss/train', nll_value, step)
 
       step += 1
-      if h.max_iters is not None and step == h.max_iters:
+      #if h.max_iters is not None and step == h.max_iters:
+      if step == h.max_iters:
         print(f'Terminating after {h.max_iters} iterations.')
-        break
+        return model
 
   if h.eval_test:
     test_nll = eval_nll(model, test_loader)
