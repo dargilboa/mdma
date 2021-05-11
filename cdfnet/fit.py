@@ -162,6 +162,11 @@ def fit_neural_copula(
       if cdf_regularization == True:
         obj = obj + model.cdf_regression_loss(batch_data[:, inds], inds=inds)
 
+      hessian_regularization = False
+      if hessian_regularization == True:
+        obj = obj + hessian_penalty_pytorch.hessian_penalty(
+            model.nll, batch_data)
+
       obj_value = obj.item()
       obj.backward()
 
