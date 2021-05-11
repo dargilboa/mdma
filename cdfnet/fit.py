@@ -157,15 +157,14 @@ def fit_neural_copula(
       # obj_type = 'cdf_regression'
       if obj_type == 'cdf_regression':
         obj = model.cdf_regression_loss(batch_data[:, inds], inds=inds)
-        obj_value = obj.item()
       else:
         if step < h.stable_nll_iters:
           #nll_value = model.nll(batch_data).item()
           obj = model.nll(batch_data[:, inds], inds=inds, stabilize=True)
         else:
           obj = model.nll(batch_data[:, inds], inds=inds)
-          #nll_value = obj.item()
 
+      obj_value = obj.item()
       obj.backward()
 
       if clip_max_norm > 0:
