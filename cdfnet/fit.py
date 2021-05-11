@@ -11,9 +11,11 @@ import time
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.FloatTensor')
+  device = "cuda"
 else:
   print('No GPU found')
   t.set_default_tensor_type('torch.FloatTensor')
+  device = "cpu"
 
 
 def get_default_h(parent=None):
@@ -32,12 +34,13 @@ def get_default_h(parent=None):
   h_parser.add_argument('--n', type=int, default=100)
   h_parser.add_argument('--m', type=int, default=5)
   h_parser.add_argument('--L', type=int, default=4)
-  h_parser.add_argument('--use_HT', type=utils.str2bool, default=False)
+  h_parser.add_argument('--use_HT', type=utils.str2bool, default=True)
+  h_parser.add_argument('--HT_poolsize', type=int, default=2)
   h_parser.add_argument('--adaptive_coupling',
                         type=utils.str2bool,
-                        default=False)
+                        default=True)
   # initialization
-  h_parser.add_argument('--w_std', type=float, default=.1)
+  h_parser.add_argument('--w_std', type=float, default=1.0)
   h_parser.add_argument('--b_std', type=float, default=0)
   h_parser.add_argument('--b_bias', type=float, default=0)
   h_parser.add_argument('--a_std', type=float, default=.1)
@@ -50,8 +53,11 @@ def get_default_h(parent=None):
                         default='adam',
                         choices=['adam', 'sgd'])
   h_parser.add_argument('--lr', type=float, default=5e-3)
-  h_parser.add_argument('--patience', '-p', type=int, default=200)
+  h_parser.add_argument('--patience', '-p', type=int, default=1000)
   h_parser.add_argument('--stable_nll_iters', type=int, default=5)
+  h_parser.add_argument('--gaussian_noise', type=float, default=0)
+  h_parser.add_argument('--subsample_inds', type=utils.str2bool, default=False)
+  h_parser.add_argument('--n_inds_to_subsample', type=int, default=20)
   # logging
   h_parser.add_argument('--data_dir', type=str, default='data/data')
   h_parser.add_argument('--use_tb', type=utils.str2bool, default=False)
@@ -118,37 +124,45 @@ def fit_neural_copula(
       f"Running {n_iters} iterations. Model contains {total_params} parameters."
   )
   h.total_params = total_params
-  print(h)
+  print(h.__dict__)
 
   # set up data loaders
   train_loader, val_loader, test_loader = data
 
   t.autograd.set_detect_anomaly(h.set_detect_anomaly)
 
-  # fit neural copula to data
+  # fit MDMA
   if h.eval_validation:
     val_nll = eval_nll(model, val_loader)
   if h.use_HT and h.adaptive_coupling:
     set_adaptive_coupling(h, model, train_loader)
   clip_max_norm = 0
+  inds = ...
   tic = time.time()
   for epoch in range(h.n_epochs):
     for batch_idx, batch in enumerate(train_loader):
-      batch_data = batch[0]
-      # import pdb
-      # pdb.set_trace()
+      batch_data = batch[0].to(device)
+
+      if h.subsample_inds:
+        inds = t.randperm(h.d)[:h.n_inds_to_subsample]
 
       # update parameters
       for param in model.parameters():
         param.grad = None
 
       # use stabilized nll if needed
-      if step < h.stable_nll_iters:
-        nll_value = model.nll(batch_data).item()
-        obj = model.nll(batch_data, stabilize=True)
+      nll_value = model.nll(batch_data).item()
+      obj_type = 'nll'
+      if obj_type == 'cdf_regression':
+        obj = model.cdf_regression_loss(batch_data[:, inds], inds=inds)
+        obj_value = obj.item()
       else:
-        obj = model.nll(batch_data)
-        nll_value = obj.item()
+        if step < h.stable_nll_iters:
+          #nll_value = model.nll(batch_data).item()
+          obj = model.nll(batch_data[:, inds], inds=inds, stabilize=True)
+        else:
+          obj = model.nll(batch_data[:, inds], inds=inds)
+          #nll_value = obj.item()
 
       obj.backward()
 
@@ -171,7 +185,17 @@ def fit_neural_copula(
           writer.add_scalar('loss/test', test_nll, step)
 
       if h.verbose and step % h.print_every == 0:
+
         print_str = f'iteration {step}, train nll: {nll_value:.4f}'
+
+        # median NLL
+        median_nll = model.median_nll(batch_data[:, inds], inds=inds).item()
+        print_str += f', median nll: {median_nll:.4f}'
+        if h.use_tb:
+          writer.add_scalar('loss/median_nll', median_nll, step)
+
+        print_str += f', obj value: {obj_value:.4f}'
+
         if h.eval_validation:
           print_str += f', val nll: {val_nll:.4f}'
 
@@ -211,33 +235,39 @@ def eval_nll(model, loader):
     val_nll = 0
     nll = model.nll
     for batch_idx, batch in enumerate(loader):
-      batch_data = batch[0]
+      batch_data = batch[0].to(device)
       val_nll += nll(batch_data).item()
   return val_nll / (batch_idx + 1)
 
 
 def initialize(h):
-  model = models.CDFNet(h.d,
-                        n=h.n,
-                        L=h.L,
-                        m=h.m,
-                        w_std=h.w_std,
-                        b_bias=h.b_bias,
-                        b_std=h.b_std,
-                        a_std=h.a_std,
-                        use_HT=h.use_HT,
-                        adaptive_coupling=h.adaptive_coupling)
+  model = models.CDFNet(
+      h.d,
+      n=h.n,
+      L=h.L,
+      m=h.m,
+      w_std=h.w_std,
+      b_bias=h.b_bias,
+      b_std=h.b_std,
+      a_std=h.a_std,
+      use_HT=h.use_HT,
+      adaptive_coupling=h.adaptive_coupling,
+      HT_poolsize=h.HT_poolsize,
+  )
   if h.opt == 'adam':
     opt_type = optim.Adam
   elif h.opt == 'sgd':
     opt_type = optim.SGD
   else:
     raise NameError
-  optimizer = opt_type(model.parameters(), lr=h.lr, weight_decay=h.lambda_l2)
+  optimizer = opt_type(model.parameters(),
+                       lr=h.lr,
+                       weight_decay=h.lambda_l2,
+                       amsgrad=True)
   scheduler = t.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                      verbose=True,
                                                      patience=h.patience,
-                                                     min_lr=1e-5,
+                                                     min_lr=1e-4,
                                                      factor=0.5)
   step = 0
   return model, optimizer, scheduler, step

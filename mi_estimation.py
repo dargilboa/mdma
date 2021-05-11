@@ -54,15 +54,6 @@ def run_mi_estimation(d=10,
     loaders = utils.create_loaders([data, 0, 0], h.batch_size)
     model = fit.fit_neural_copula(h, loaders)
 
-    #%%
-    # samples = np.array([])
-    # for i in range(n_samples // h.batch_size):
-    #   samples = np.concatenate((samples, model.sample(h.batch_size)))
-    # from pytorch_memlab import LineProfiler
-    # import cdfnet.models
-    #
-    # with LineProfiler(cdfnet.models.CDFNet.sample,
-    #                   cdfnet.models.CDFNet.condCDF) as prof:
     print('Sampling')
     samples = model.sample(n_samples, batch_size=h.batch_size)
     samples = t.Tensor(samples)
@@ -84,29 +75,16 @@ def run_mi_estimation(d=10,
             cpu().detach().numpy()
         ]
       all_mi_ests.append(mi_ests)
-    # mis = []
-    # mi_ests = []
-    # for i in ind_rng:
-    #   mis += [
-    #       -(1 / 2) * np.log((2 * np.pi)**i * np.linalg.det(Sigma[:i, :i])) - i / 2
-    #   ]
-    #   mi_ests += [
-    #       t.mean(model.log_density(samples[:, range(i)],
-    #                                inds=range(i))).cpu().detach().numpy()
-    #   ]
-    # mis = []
-    # mi_ests = []
-    # for i in ind_rng:
-    #   mis += [
-    #       -(1 / 2) * np.log(
-    #           (2 * np.pi)**(d - i) * np.linalg.det(Sigma[i:, i:])) - (d - i) / 2
-    #   ]
-    #   mi_ests += [
-    #       t.mean(model.log_density(samples[:, range(i, d)],
-    #                                inds=range(i, d))).cpu().detach().numpy()
-    #   ]
     all_mi_ests_all_reps.append([mi_ests])
+    # saving
+    file_name = f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}'
+    print(f'Saving results to {file_name}')
+    np.save(
+        f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}',
+        all_mi_ests_all_reps)
   all_mi_ests_all_reps = np.array(all_mi_ests_all_reps)
+
+  # plotting
   plt.figure()
   plt.scatter(ind_rng, mis, label='ground truth')
   all_mi_ests_all_reps = np.mean(all_mi_ests_all_reps,
