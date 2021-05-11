@@ -2,6 +2,7 @@ import torch as t
 import torch.nn as nn
 import numpy as np
 from cdfnet import utils
+from cdf import fastCDFOnSample
 from operator import itemgetter
 from opt_einsum import contract, contract_expression
 from numpy import concatenate
@@ -389,9 +390,12 @@ class CDFNet(nn.Module):
 
   def cdf_regression_loss(self, X, inds=...):
     # naive and super slow atm
-    emp_cdf = t.tensor([
-        t.mean(t.tensor([t.all(y > x) for x in X[:, inds]]).float())
-        for y in X[:, inds]
-    ])
+    # emp_cdf = t.tensor([
+    #     t.mean(t.tensor([t.all(y > x) for x in X[:, inds]]).float())
+    #     for y in X[:, inds]
+    # ])
+    y = np.ones([X.shape[0]])
+    x = X[:, inds].detach().cpu().numpy()
+    emp_cdf = t.tensor(fastCDFOnSample(x.transpose(), y))
 
     return (1 / 2) * t.mean((emp_cdf - self.CDF(X, inds))**2)

@@ -1,0 +1,4 @@
+include requirements.txt
+recursive-include src *
+recursive-include lib/eigen/Eigen *
+recursive-include lib/cdf/cdf *.h
