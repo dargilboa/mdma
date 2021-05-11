@@ -7,7 +7,21 @@ from torch.utils.data import TensorDataset, DataLoader
 import argparse
 import os
 import matplotlib.pyplot as plt
+import time
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+class Timer(object):
+  def __init__(self, name=None):
+    self.name = name
+
+  def __enter__(self):
+    self.tstart = time.time()
+
+  def __exit__(self, type, value, traceback):
+    if self.name:
+      print('[%s]' % self.name, )
+    print('Elapsed: %s' % (time.time() - self.tstart))
 
 
 class linear_interp():

@@ -2,6 +2,7 @@ import torch as t
 import torch.optim as optim
 from cdfnet import models
 from cdfnet import utils
+from cdfnet import hessian_penalty_pytorch
 import copy
 import argparse
 import datetime
@@ -153,6 +154,7 @@ def fit_neural_copula(
       # use stabilized nll if needed
       nll_value = model.nll(batch_data).item()
       obj_type = 'nll'
+      # obj_type = 'cdf_regression'
       if obj_type == 'cdf_regression':
         obj = model.cdf_regression_loss(batch_data[:, inds], inds=inds)
         obj_value = obj.item()
