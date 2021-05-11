@@ -2,7 +2,8 @@ import numpy as np
 import cdf
 
 nbSimul = 100000
-x = np.random.normal(size=(2, nbSimul))
+d = 6
+x = np.random.normal(size=(d, nbSimul))
 # y =1 for simple CDF
 y = np.ones([nbSimul])
 

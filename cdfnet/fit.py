@@ -152,17 +152,15 @@ def fit_neural_copula(
         param.grad = None
 
       # use stabilized nll if needed
-      nll_value = model.nll(batch_data).item()
-      obj_type = 'nll'
-      # obj_type = 'cdf_regression'
-      if obj_type == 'cdf_regression':
-        obj = model.cdf_regression_loss(batch_data[:, inds], inds=inds)
+      if step < h.stable_nll_iters:
+        obj = model.nll(batch_data[:, inds], inds=inds, stabilize=True)
       else:
-        if step < h.stable_nll_iters:
-          #nll_value = model.nll(batch_data).item()
-          obj = model.nll(batch_data[:, inds], inds=inds, stabilize=True)
-        else:
-          obj = model.nll(batch_data[:, inds], inds=inds)
+        obj = model.nll(batch_data[:, inds], inds=inds)
+      nll_value = obj.item()
+
+      cdf_regularization = False
+      if cdf_regularization == True:
+        obj = obj + model.cdf_regression_loss(batch_data[:, inds], inds=inds)
 
       obj_value = obj.item()
       obj.backward()

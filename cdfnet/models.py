@@ -395,7 +395,9 @@ class CDFNet(nn.Module):
     #     for y in X[:, inds]
     # ])
     y = np.ones([X.shape[0]])
-    x = X[:, inds].detach().cpu().numpy()
-    emp_cdf = t.tensor(fastCDFOnSample(x.transpose(), y))
+    x = X[:, inds].detach().cpu().numpy().transpose()
+    eps = np.random.random(size=x.shape) * 1e-13  # to break ties
+    emp_cdf = t.tensor(fastCDFOnSample(x + eps, y))
 
-    return (1 / 2) * t.mean((emp_cdf - self.CDF(X, inds))**2)
+    # return (1 / 2) * t.mean((emp_cdf - self.CDF(X, inds))**2)
+    return t.max(t.abs(emp_cdf - self.CDF(X, inds)))
