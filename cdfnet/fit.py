@@ -40,6 +40,9 @@ def get_default_h(parent=None):
   h_parser.add_argument('--adaptive_coupling',
                         type=utils.str2bool,
                         default=True)
+  h_parser.add_argument('--mix_vars', type=utils.str2bool, default=False)
+  h_parser.add_argument('--n_mix_terms', type=int, default=1)
+
   # initialization
   h_parser.add_argument('--w_std', type=float, default=1.0)
   h_parser.add_argument('--b_std', type=float, default=0)
@@ -257,6 +260,8 @@ def initialize(h):
       use_HT=h.use_HT,
       adaptive_coupling=h.adaptive_coupling,
       HT_poolsize=h.HT_poolsize,
+      mix_vars=h.mix_vars,
+      n_mix_terms=h.n_mix_terms,
   )
   if h.opt == 'adam':
     opt_type = optim.Adam

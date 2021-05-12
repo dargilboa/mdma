@@ -2,7 +2,7 @@ import torch as t
 import torch.nn as nn
 import numpy as np
 from cdfnet import utils
-from cdf import fastCDFOnSample
+#from cdf import fastCDFOnSample
 from operator import itemgetter
 from opt_einsum import contract, contract_expression
 from numpy import concatenate
@@ -26,6 +26,8 @@ class CDFNet(nn.Module):
       HT_poolsize=2,
       use_HT=False,
       adaptive_coupling=False,
+      mix_vars=False,
+      n_mix_terms=1,
   ):
     super(CDFNet, self).__init__()
     self.d = d
@@ -86,6 +88,41 @@ class CDFNet(nn.Module):
       # create couplings
       self.all_couplings = self.create_default_couplings()
 
+    # add parameters for mixing variables
+    self.mix_vars = mix_vars
+    self.n_mix_terms = n_mix_terms
+    if self.mix_vars:
+      # save permutations and parameters
+      # self.mix_params = t.nn.ParameterList(
+      #   [nn.Parameter((1 / np.sqrt(n_mix_terms)) * t.randn(self.n, b)) for b in range(self.d - 1, self.d - n_mix_terms, -1)])
+      # nonzero_inds = [[k, i, i + j] for j in range(1, self.n_mix_terms + 1)
+      #                 for i in range(self.d - j)
+      #                 for k in range(self.n)]  # n_mix_terms leading diagonals
+      nonzero_inds = [[i, i + j] for j in range(1, self.n_mix_terms + 1)
+                      for i in range(self.d - j)
+                      ]  # n_mix_terms leading diagonals
+      perms = [np.random.permutation(self.d) for _ in range(self.n)]
+      permuted_nonzero_inds = []
+      for n_perm, perm in enumerate(perms):
+        permuted_nonzero_inds += [[n_perm, perm[inds[0]], perm[inds[1]]]
+                                  for inds in nonzero_inds]
+
+      # permuted_nonzero_inds = [[perm[inds[0]], perms[inds[1]]]
+      #                          for perm in perms for inds in nonzero_inds]
+      params = (1 / np.sqrt(self.n_mix_terms)) * t.randn(
+          len(permuted_nonzero_inds))
+      # zeros = t.zeros((self.n, self.d, self.d), requires_grad=False)
+      # zeros[list(zip(*permuted_nonzero_inds))] = params
+      # self.mix_params = nn.Parameter(zeros)
+      self.mix_params = nn.Parameter(
+          t.sparse_coo_tensor(list(zip(*permuted_nonzero_inds)),
+                              params,
+                              size=(self.n, self.d, self.d)).to_dense())
+      # add gradient mask to prevent the zero entries from changing
+      gradient_mask = t.zeros((self.n, self.d, self.d))
+      gradient_mask[list(zip(*permuted_nonzero_inds))] = 1.0
+      self.mix_params.register_hook(lambda grad: grad.mul_(gradient_mask))
+
   def phis(self, X, inds=...):
     # X is a B x dim(inds) tensor
     # returns B x n x dim(inds) tensor
@@ -110,7 +147,10 @@ class CDFNet(nn.Module):
   def phidots(self, X, inds=...):
     # X is a B x dim(inds) tensor
     # returns B x d x n tensor
-    phis = self.expand_X(X)  # B x dim(inds) x n x 1
+    X = self.expand_X(X)  # B x dim(inds) x n x 1
+
+    if self.mix_vars:
+      X = self.mix_X(X)
 
     # keep only the parameters relevant for the subset of variables specified by inds
     sliced_ws = [w[inds, ...] for w in self.w_s]
@@ -118,6 +158,7 @@ class CDFNet(nn.Module):
     sliced_as = [a[inds, ...] for a in self.a_s[:-1]]
 
     # compute CDF using a feed-forward network
+    phis = X
     phidots = t.ones_like(phis)
     for w, b, a in zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as):
       phis = t.einsum('mjik,jikl->mjil', phis, self.nonneg_m(w)) + b
@@ -389,15 +430,16 @@ class CDFNet(nn.Module):
     self.all_couplings = all_couplings
 
   def cdf_regression_loss(self, X, inds=...):
-    # naive and super slow atm
-    # emp_cdf = t.tensor([
-    #     t.mean(t.tensor([t.all(y > x) for x in X[:, inds]]).float())
-    #     for y in X[:, inds]
-    # ])
     y = np.ones([X.shape[0]])
     x = X[:, inds].detach().cpu().numpy().transpose()
     eps = np.random.random(size=x.shape) * 1e-13  # to break ties
     emp_cdf = t.tensor(fastCDFOnSample(x + eps, y))
-
-    # return (1 / 2) * t.mean((emp_cdf - self.CDF(X, inds))**2)
     return t.max(t.abs(emp_cdf - self.CDF(X, inds)))
+
+  def mix_X(self, X):
+    # X is B x dim(inds) x n x 1
+
+    X = X + t.einsum('ijk,bkil->bjil', self.nonneg(self.mix_params),
+                     t.sigmoid(X))
+
+    return X
