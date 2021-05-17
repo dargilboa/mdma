@@ -25,6 +25,7 @@ class CDFNet(nn.Module):
       a_std=1.0,
       HT_poolsize=2,
       use_HT=False,
+      use_MERA=False,
       adaptive_coupling=False,
       mix_vars=False,
       n_mix_terms=1,
@@ -43,6 +44,7 @@ class CDFNet(nn.Module):
     self.b_std = b_std
     self.b_bias = b_bias
     self.use_HT = use_HT
+    self.use_MERA = use_MERA
     self.adaptive_coupling = adaptive_coupling
 
     # initialize parameters for marginal CDFs
@@ -73,11 +75,20 @@ class CDFNet(nn.Module):
       self.L_HT = int(np.ceil(np.log(self.d) / np.log(self.HT_poolsize)))
       self.a_HTs = t.nn.ParameterList()
       dim_l = self.d
+      if self.use_MERA:
+        self.a_MERAs = t.nn.ParameterList()
+        self.a_MERAs += [
+            nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
+        ]
       for _ in range(self.L_HT - 1):
         dim_l = int(np.ceil(dim_l / self.HT_poolsize))
         self.a_HTs += [
             nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
         ]
+        if self.use_MERA:
+          self.a_MERAs += [
+              nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
+          ]
       self.a_HTs += [nn.Parameter(a_scale * t.randn(1, self.n, 1))]
 
       # pooling layer for stabilizing nll
@@ -87,6 +98,8 @@ class CDFNet(nn.Module):
 
       # create couplings
       self.all_couplings = self.create_default_couplings()
+      if self.use_MERA:
+        self.mera_couplings = self.create_mera_couplings()
 
     # add parameters for mixing variables
     self.mix_vars = mix_vars
@@ -204,7 +217,9 @@ class CDFNet(nn.Module):
     return F
 
   def contract(self, T, inds=...):
-    if self.use_HT:
+    if self.use_HT and self.use_MERA:
+      return self.MERA_contraction(T, inds=inds)
+    elif self.use_HT and not self.use_MERA:
       return self.HT_contraction(T, inds=inds)
     else:
       # assuming CP
@@ -245,9 +260,37 @@ class CDFNet(nn.Module):
       T = T_full
 
     for a_s, couplings in zip(self.a_HTs, self.all_couplings):
-
       T = [t.prod(T[:, coupling, :], dim=1) for coupling in couplings]
       # normalize sum of a_s across second dimension
+      a_s = self.nonneg(a_s)
+      a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
+      T = t.stack([t.matmul(phid, a) for phid, a in zip(T, a_s)], dim=1)
+
+    return t.squeeze(T)
+
+  def MERA_contraction(self, T, inds=...):
+    # T is a B x len(inds) x n tensor (some combination of phis and phidots) that is contracted with a
+    # tensor of parameters to obtain a scalar
+    # returns a B dimensional tensor
+
+    # add ones for marginalized variables (can be avoided to speed up and save memory)
+    if inds is not ...:
+      T_full = t.ones((T.shape[0], self.d, self.n))
+      T_full[:, inds, :] = T
+      T = T_full
+
+    for a_s, a2_s, couplings, couplings2 in zip(self.a_HTs, self.a_MERAs,
+                                                self.all_couplings,
+                                                self.mera_couplings):
+
+      # disentangle (for MERA)
+      T = [t.prod(T[:, coupling, :], dim=1) for coupling in couplings2]
+      a2_s = self.nonneg(a2_s)
+      a2_s = a2_s / t.sum(a2_s, dim=1, keepdim=True)
+      T = t.stack([t.matmul(phid, a) for phid, a in zip(T, a2_s)], dim=1)
+
+      # coarse-graining (as in HT)
+      T = [t.prod(T[:, coupling, :], dim=1) for coupling in couplings]
       a_s = self.nonneg(a_s)
       a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
       T = t.stack([t.matmul(phid, a) for phid, a in zip(T, a_s)], dim=1)
@@ -358,6 +401,17 @@ class CDFNet(nn.Module):
     phidots = self.phidots(joint_X, inds=joint_inds)
     numerator = self.contract(phidots, inds=joint_inds)
     return numerator / denom
+
+  def create_mera_couplings(self):
+    # create default coupling of variables used in the mera decomposition
+    all_couplings = []
+    dim_l = self.d
+    for _ in range(self.L_HT):
+      couplings = [[j, j + 1] if j + 1 < dim_l else [j, 0]
+                   for j in range(0, dim_l)]
+      dim_l = int(np.ceil(dim_l / self.HT_poolsize))
+      all_couplings.append(couplings)
+    return all_couplings
 
   def create_default_couplings(self):
     # create default coupling of variables used in the HT decomposition

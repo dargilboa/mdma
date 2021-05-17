@@ -36,6 +36,7 @@ def get_default_h(parent=None):
   h_parser.add_argument('--m', type=int, default=5)
   h_parser.add_argument('--L', type=int, default=4)
   h_parser.add_argument('--use_HT', type=utils.str2bool, default=True)
+  h_parser.add_argument('--use_MERA', type=utils.str2bool, default=True)
   h_parser.add_argument('--HT_poolsize', type=int, default=2)
   h_parser.add_argument('--adaptive_coupling',
                         type=utils.str2bool,
@@ -258,6 +259,7 @@ def initialize(h):
       b_std=h.b_std,
       a_std=h.a_std,
       use_HT=h.use_HT,
+      use_MERA=h.use_MERA,
       adaptive_coupling=h.adaptive_coupling,
       HT_poolsize=h.HT_poolsize,
       mix_vars=h.mix_vars,
