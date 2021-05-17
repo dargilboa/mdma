@@ -77,18 +77,19 @@ class CDFNet(nn.Module):
       dim_l = self.d
       if self.use_MERA:
         self.a_MERAs = t.nn.ParameterList()
-        self.a_MERAs += [
-            nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
-        ]
+        # self.a_MERAs += [
+        #     nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
+        # ]
       for _ in range(self.L_HT - 1):
-        dim_l = int(np.ceil(dim_l / self.HT_poolsize))
-        self.a_HTs += [
-            nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
-        ]
         if self.use_MERA:
           self.a_MERAs += [
               nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
           ]
+        dim_l = int(np.ceil(dim_l / self.HT_poolsize))
+        self.a_HTs += [
+            nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
+        ]
+
       self.a_HTs += [nn.Parameter(a_scale * t.randn(1, self.n, 1))]
 
       # pooling layer for stabilizing nll
@@ -279,22 +280,30 @@ class CDFNet(nn.Module):
       T_full[:, inds, :] = T
       T = T_full
 
-    for a_s, a2_s, couplings, couplings2 in zip(self.a_HTs, self.a_MERAs,
-                                                self.all_couplings,
+    for a_s, a2_s, couplings, couplings2 in zip(self.a_HTs[:-1], self.a_MERAs,
+                                                self.all_couplings[:-1],
                                                 self.mera_couplings):
 
       # disentangle (for MERA)
+      # import pdb
+      # pdb.set_trace()
       T = [t.prod(T[:, coupling, :], dim=1) for coupling in couplings2]
       a2_s = self.nonneg(a2_s)
-      a2_s = a2_s / t.sum(a2_s, dim=1, keepdim=True)
+      a2_s = a2_s / t.sum(a2_s, dim=1, keepdim=True)  # this should be unitary
       T = t.stack([t.matmul(phid, a) for phid, a in zip(T, a2_s)], dim=1)
 
-      # coarse-graining (as in HT)
+      # coarse-graining (for HT)
       T = [t.prod(T[:, coupling, :], dim=1) for coupling in couplings]
       a_s = self.nonneg(a_s)
       a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
       T = t.stack([t.matmul(phid, a) for phid, a in zip(T, a_s)], dim=1)
 
+    T = [
+        t.prod(T[:, coupling, :], dim=1) for coupling in self.all_couplings[-1]
+    ]
+    a_s = self.nonneg(self.a_HTs[-1])
+    a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
+    T = t.stack([t.matmul(phid, a) for phid, a in zip(T, a_s)], dim=1)
     return t.squeeze(T)
 
   def marginal_likelihood(self, X):
@@ -406,7 +415,7 @@ class CDFNet(nn.Module):
     # create default coupling of variables used in the mera decomposition
     all_couplings = []
     dim_l = self.d
-    for _ in range(self.L_HT):
+    for _ in range(self.L_HT - 1):
       couplings = [[j, j + 1] if j + 1 < dim_l else [j, 0]
                    for j in range(0, dim_l)]
       dim_l = int(np.ceil(dim_l / self.HT_poolsize))
