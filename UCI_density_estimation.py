@@ -8,8 +8,8 @@ from experiments.BNAF.data.hepmass import HEPMASS
 from experiments.BNAF.data.miniboone import MINIBOONE
 from experiments.BNAF.data.power import POWER
 
-np.random.seed(0)
-t.manual_seed(0)
+# np.random.seed(0)
+# t.manual_seed(0)
 
 
 def fit_UCI():
@@ -32,12 +32,25 @@ def load_dataset(h):
   else:
     raise RuntimeError()
 
-  dataset_train = t.utils.data.TensorDataset(t.tensor(dataset.trn.x).float())
+  if h.missing_data_pct > 0:
+    # create missing data masks
+    mask = np.random.rand(*dataset.trn.x.shape) > h.missing_data_pct
+    data_and_mask = np.array([dataset.trn.x, mask]).swapaxes(0, 1)
+    dataset_train = t.utils.data.TensorDataset(t.tensor(data_and_mask).float())
+    val_mask = np.random.rand(*dataset.val.x.shape) > h.missing_data_pct
+    val_data_and_mask = np.array([dataset.val.x, val_mask]).swapaxes(0, 1)
+    dataset_valid = t.utils.data.TensorDataset(
+        t.tensor(val_data_and_mask).float())
+  else:
+    dataset_train = t.utils.data.TensorDataset(
+        t.tensor(np.expand_dims(dataset.trn.x, 1)).float())
+    dataset_valid = t.utils.data.TensorDataset(
+        t.tensor(np.expand_dims(dataset.val.x, 1)).float())
+
   data_loader_train = t.utils.data.DataLoader(dataset_train,
                                               batch_size=h.batch_size,
                                               shuffle=True)
 
-  dataset_valid = t.utils.data.TensorDataset(t.tensor(dataset.val.x).float())
   data_loader_valid = t.utils.data.DataLoader(dataset_valid,
                                               batch_size=h.batch_size,
                                               shuffle=False)

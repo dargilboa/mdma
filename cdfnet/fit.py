@@ -31,6 +31,8 @@ def get_default_h(parent=None):
       type=str,
       default='',
       choices=['', 'gas', 'bsds300', 'hepmass', 'miniboone', 'power'])
+  h_parser.add_argument('--missing_data_pct', type=float, default=0.0)
+
   # architecture
   h_parser.add_argument('--n', type=int, default=100)
   h_parser.add_argument('--m', type=int, default=5)
@@ -57,7 +59,8 @@ def get_default_h(parent=None):
                         default='adam',
                         choices=['adam', 'sgd'])
   h_parser.add_argument('--lr', type=float, default=5e-3)
-  h_parser.add_argument('--patience', '-p', type=int, default=1000)
+  h_parser.add_argument('--patience', '-p', type=int, default=10)
+  h_parser.add_argument('--es_patience', '-esp', type=int, default=30)
   h_parser.add_argument('--stable_nll_iters', type=int, default=5)
   h_parser.add_argument('--gaussian_noise', type=float, default=0)
   h_parser.add_argument('--subsample_inds', type=utils.str2bool, default=False)
@@ -79,14 +82,14 @@ def get_default_h(parent=None):
   h_parser.add_argument('--save_path', type=str, default='data/checkpoint')
   h_parser.add_argument('--checkpoint_every', '-ce', type=int, default=200)
   h_parser.add_argument('--eval_validation', type=utils.str2bool, default=True)
-  h_parser.add_argument('--val_every', '-ve', type=int, default=1000)
+  #h_parser.add_argument('--val_every', '-ve', type=int, default=1000)
   h_parser.add_argument('--eval_test',
                         '-et',
                         type=utils.str2bool,
                         default=True)
-  h_parser.add_argument('--test_every', '-te', type=int, default=1000)
+  #h_parser.add_argument('--test_every', '-te', type=int, default=1000)
   h_parser.add_argument('--verbose', '-v', type=utils.str2bool, default=True)
-  h_parser.add_argument('--print_every', '-pe', type=int, default=20)
+  h_parser.add_argument('--print_every', '-pe', type=int, default=100)
   h_parser.add_argument('--max_iters', type=int, default=None)
 
   h = h_parser.parse_known_args()[0]
@@ -125,7 +128,7 @@ def fit_neural_copula(
 
   total_params = sum(p.numel() for p in model.parameters())
   print(
-      f"Running {n_iters} iterations. Model contains {total_params} parameters."
+      f"Running {n_iters} iterations. Model contains {total_params} parameters. Using device {t.cuda.current_device()}"
   )
   h.total_params = total_params
   print(h.__dict__)
@@ -137,28 +140,34 @@ def fit_neural_copula(
 
   # fit MDMA
   if h.eval_validation:
-    val_nll = eval_nll(model, val_loader)
+    val_nll = eval_validation(model, val_loader, h)
   if h.use_HT and h.adaptive_coupling:
     set_adaptive_coupling(h, model, train_loader)
   clip_max_norm = 0
   inds = ...
+  missing_data_mask = None
+  use_stable_nll = True
   tic = time.time()
+  es = utils.EarlyStopping(patience=h.es_patience)
   for epoch in range(h.n_epochs):
     for batch_idx, batch in enumerate(train_loader):
-      batch_data = batch[0].to(device)
+      batch_data = batch[0][:, 0, :].to(device)
+      if h.missing_data_pct > 0:
+        missing_data_mask = batch[0][:, 1, :].to(device)
 
       if h.subsample_inds:
         inds = t.randperm(h.d)[:h.n_inds_to_subsample]
 
-      # update parameters
+      if step == h.stable_nll_iters:
+        use_stable_nll = False
+
       for param in model.parameters():
         param.grad = None
 
-      # use stabilized nll if needed
-      if step < h.stable_nll_iters:
-        obj = model.nll(batch_data[:, inds], inds=inds, stabilize=True)
-      else:
-        obj = model.nll(batch_data[:, inds], inds=inds)
+      obj = model.nll(batch_data[:, inds],
+                      inds=inds,
+                      stabilize=use_stable_nll,
+                      missing_data_mask=missing_data_mask)
       nll_value = obj.item()
 
       cdf_regularization = False
@@ -177,30 +186,12 @@ def fit_neural_copula(
         t.nn.utils.clip_grad_value_(model.parameters(), clip_max_norm)
 
       optimizer.step()
-      scheduler.step(obj)
-
-      if h.eval_validation and step % h.val_every == 0:
-        val_nll = eval_nll(model, val_loader)
-        print(f'iteration {step}, validation nll: {val_nll:.4f}')
-        if h.use_tb:
-          writer.add_scalar('loss/validation', val_nll, step)
-
-      if h.eval_test and step % h.test_every == 0:
-        test_nll = eval_nll(model, test_loader)
-        print(f'iteration {step}, test nll: {test_nll:.4f}')
-        if h.use_tb:
-          writer.add_scalar('loss/test', test_nll, step)
+      if not h.eval_validation:
+        scheduler.step(obj)
 
       if h.verbose and step % h.print_every == 0:
 
-        print_str = f'iteration {step}, train nll: {nll_value:.4f}'
-
-        # median NLL
-        median_nll = model.median_nll(batch_data[:, inds], inds=inds).item()
-        print_str += f', median nll: {median_nll:.4f}'
-        if h.use_tb:
-          writer.add_scalar('loss/median_nll', median_nll, step)
-
+        print_str = f'Iteration {step}, train nll: {nll_value:.4f}'
         print_str += f', obj value: {obj_value:.4f}'
 
         if h.eval_validation:
@@ -225,26 +216,50 @@ def fit_neural_copula(
         writer.add_scalar('loss/train', nll_value, step)
 
       step += 1
-      #if h.max_iters is not None and step == h.max_iters:
       if step == h.max_iters:
         print(f'Terminating after {h.max_iters} iterations.')
         return model
 
-  if h.eval_test:
-    test_nll = eval_nll(model, test_loader)
-    if h.use_tb:
-      writer.add_scalar('loss/test', test_nll, step)
+    if h.eval_test:
+      test_nll = eval_test(model, test_loader)
+      print(f'Epoch {epoch}, test nll: {test_nll:.4f}')
+      if h.use_tb:
+        writer.add_scalar('loss/test', test_nll, epoch)
+
+    if h.eval_validation:
+      val_nll = eval_validation(model, val_loader, h)
+      scheduler.step(val_nll)
+      print(f'Epoch {epoch}, validation nll: {val_nll:.4f}')
+      if h.use_tb:
+        writer.add_scalar('loss/validation', val_nll, epoch)
+
+      if es.step(val_nll):
+        print('Early stopping criterion met, terminating.')
+        return model
+
   return model
 
 
-def eval_nll(model, loader):
+def eval_validation(model, loader, h):
   with t.no_grad():
     val_nll = 0
     nll = model.nll
     for batch_idx, batch in enumerate(loader):
-      batch_data = batch[0].to(device)
-      val_nll += nll(batch_data).item()
+      batch_data = batch[0][:, 0, :].to(device)
+      if h.missing_data_pct > 0:
+        missing_data_mask = batch[0][:, 1, :].to(device)
+      val_nll += nll(batch_data, missing_data_mask=missing_data_mask).item()
   return val_nll / (batch_idx + 1)
+
+
+def eval_test(model, loader):
+  with t.no_grad():
+    test_nll = 0
+    nll = model.nll
+    for batch_idx, batch in enumerate(loader):
+      batch_data = batch[0].to(device)
+      test_nll += nll(batch_data).item()
+  return test_nll / (batch_idx + 1)
 
 
 def initialize(h):
@@ -295,7 +310,8 @@ def load_checkpoint(model, optimizer, scheduler, step, checkpoint_to_load):
 
 def get_tb_path(h):
   fields = [
-      'dataset', 'n', 'm', 'L', 'batch_size', 'n_epochs', 'lr', 'patience'
+      'dataset', 'n', 'm', 'L', 'mix_vars', 'batch_size', 'n_epochs', 'lr',
+      'patience', 'missing_data_pct'
   ]
   dt_str = str(datetime.datetime.now())[:-7].replace(' ',
                                                      '-').replace(':', '-')
@@ -312,6 +328,11 @@ def get_tb_path(h):
 def set_adaptive_coupling(h, model, train_loader):
   n_batches = 10 * h.d**2 // h.batch_size + 1
   train_iter = iter(train_loader)
-  batches = [next(train_iter)[0] for _ in range(n_batches)]
+  if h.missing_data_pct > 0:
+    # multiply by mask
+    batches = [t.prod(next(train_iter)[0], dim=1) for _ in range(n_batches)]
+  else:
+    batches = [next(train_iter)[0][:, 0, :] for _ in range(n_batches)]
+
   model.create_adaptive_couplings(batches)
   print('Using adaptive variable coupling')

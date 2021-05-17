@@ -1,0 +1,10 @@
+#!/bin/bash
+screen -dmS 0 bash -c "cd /tmp/pycharm_project_218; source activate pytorch_latest_p37; bash run_missing_data.sh .45 0; exec sh"
+screen -dmS 1 bash -c "cd /tmp/pycharm_project_218; source activate pytorch_latest_p37; bash run_missing_data.sh .5 1; exec sh"
+screen -dmS 2 bash -c "cd /tmp/pycharm_project_218; source activate pytorch_latest_p37; bash run_missing_data.sh .55 2; exec sh"
+screen -dmS 3 bash -c "cd /tmp/pycharm_project_218; source activate pytorch_latest_p37; bash run_missing_data.sh .6 3; exec sh"
+screen -dmS 4 bash -c "cd /tmp/pycharm_project_218; source activate pytorch_latest_p37; bash run_missing_data.sh .65 4; exec sh"
+screen -dmS 5 bash -c "cd /tmp/pycharm_project_218; source activate pytorch_latest_p37; bash run_missing_data.sh .7 5; exec sh"
+screen -dmS 6 bash -c "cd /tmp/pycharm_project_218; source activate pytorch_latest_p37; bash run_missing_data.sh .75 6; exec sh"
+screen -dmS 7 bash -c "cd /tmp/pycharm_project_218; source activate pytorch_latest_p37; bash run_missing_data.sh .8 7; exec sh"
+screen -dmS "tb" bash -c "source activate pytorch_latest_p37; tensorboard --logdir /tmp/pycharm_project_218/data/tb --bind_all"
