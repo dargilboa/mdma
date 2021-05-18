@@ -17,6 +17,7 @@ from data.hepmass import HEPMASS
 from data.miniboone import MINIBOONE
 from data.power import POWER
 import miceforest as mf
+from sklearn.impute import KNNImputer
 import pandas as pd
 
 NAF_PARAMS = {
@@ -68,6 +69,17 @@ def load_dataset(args):
       # create tensordataset from tensor
       dataset_train = torch.utils.data.TensorDataset(
           torch.tensor(np.expand_dims(mice_data, 1)).float().to(args.device))
+    elif args.missing_data_strategy == 'knn':
+      traindata = dataset.trn.x
+      mask = np.random.rand(*traindata.shape) > args.missing_data_pct
+      missing_traindata = traindata + mask * np.nan
+      imputer = KNNImputer(n_neighbors=2)
+      knn_data = imputer.fit_transform(missing_traindata)
+      print(
+          f'Created dataset using KNN, missing proportion {args.missing_data_pct}'
+      )
+      dataset_train = torch.utils.data.TensorDataset(
+          torch.tensor(np.expand_dims(knn_data, 1)).float().to(args.device))
     else:
       # mean imputation
       data_and_mask = np.array([dataset.trn.x, mask]).swapaxes(0, 1)
@@ -84,19 +96,31 @@ def load_dataset(args):
                                                   batch_size=args.batch_dim,
                                                   shuffle=True)
 
-  if args.missing_data_pct > 0 and args.missing_data_strategy == 'mice':
-    valdata = dataset.val.x
-    df = pd.DataFrame(data=valdata)
-    data_amp = mf.ampute_data(df, perc=args.missing_data_pct)
-    kdf = mf.KernelDataSet(data_amp, save_all_iterations=True)
-    kdf.mice(3)
-    completed_data = kdf.complete_data()
-    mice_data = completed_data.to_numpy()
-    print(
-        f'Created dataset using MICE, missing proportion {args.missing_data_pct}'
-    )
-    dataset_valid = torch.utils.data.TensorDataset(
-        torch.tensor(mice_data).float().to(args.device))
+  if args.missing_data_pct > 0:
+    if args.missing_data_strategy == 'mice':
+      valdata = dataset.val.x
+      df = pd.DataFrame(data=valdata)
+      data_amp = mf.ampute_data(df, perc=args.missing_data_pct)
+      kdf = mf.KernelDataSet(data_amp, save_all_iterations=True)
+      kdf.mice(3)
+      completed_data = kdf.complete_data()
+      mice_data = completed_data.to_numpy()
+      print(
+          f'Created dataset using MICE, missing proportion {args.missing_data_pct}'
+      )
+      dataset_valid = torch.utils.data.TensorDataset(
+          torch.tensor(mice_data).float().to(args.device))
+    elif args.missing_data_strategy == 'knn':
+      valdata = dataset.val.x
+      mask = np.random.rand(*valdata.shape) > args.missing_data_pct
+      missing_valdata = valdata + mask * np.nan
+      imputer = KNNImputer(n_neighbors=2)
+      knn_data = imputer.fit_transform(missing_valdata)
+      print(
+          f'Created dataset using KNN, missing proportion {args.missing_data_pct}'
+      )
+      dataset_valid = torch.utils.data.TensorDataset(
+          torch.tensor(knn_data).float().to(args.device))
   else:
     dataset_valid = torch.utils.data.TensorDataset(
         torch.from_numpy(dataset.val.x).float().to(args.device))
@@ -244,12 +268,10 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid,
         compute_log_p_x(model, x_mb).mean().detach()
         for x_mb, in data_loader_valid
     ], -1).mean()
-    test_every = 100
-    if epoch % test_every == 0:
-      test_loss = -torch.stack([
-          compute_log_p_x(model, x_mb).mean().detach()
-          for x_mb, in data_loader_test
-      ], -1).mean()
+    test_loss = -torch.stack([
+        compute_log_p_x(model, x_mb).mean().detach()
+        for x_mb, in data_loader_test
+    ], -1).mean()
     optimizer.swap()
 
     print(

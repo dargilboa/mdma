@@ -3,12 +3,12 @@ import torch.optim as optim
 from cdfnet import models
 from cdfnet import utils
 from cdfnet import hessian_penalty_pytorch
-import copy
 import argparse
 import datetime
 import json
 import os
 import time
+import requests
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -70,6 +70,7 @@ def get_default_h(parent=None):
   h_parser.add_argument('--use_tb', type=utils.str2bool, default=False)
   h_parser.add_argument('--tb_dir', type=str, default='data/tb')
   h_parser.add_argument('--exp_name', type=str, default='')
+  h_parser.add_argument('--add_dt_str', type=utils.str2bool, default=True)
   h_parser.add_argument('--model_to_load', '-mtl', type=str, default='')
   h_parser.add_argument('--set_detect_anomaly',
                         '-sde',
@@ -80,7 +81,7 @@ def get_default_h(parent=None):
                         type=utils.str2bool,
                         default=True)
   h_parser.add_argument('--save_path', type=str, default='data/checkpoint')
-  h_parser.add_argument('--checkpoint_every', '-ce', type=int, default=200)
+  #h_parser.add_argument('--checkpoint_every', '-ce', type=int, default=200)
   h_parser.add_argument('--eval_validation', type=utils.str2bool, default=True)
   #h_parser.add_argument('--val_every', '-ve', type=int, default=1000)
   h_parser.add_argument('--eval_test',
@@ -89,8 +90,9 @@ def get_default_h(parent=None):
                         default=True)
   #h_parser.add_argument('--test_every', '-te', type=int, default=1000)
   h_parser.add_argument('--verbose', '-v', type=utils.str2bool, default=True)
-  h_parser.add_argument('--print_every', '-pe', type=int, default=100)
+  h_parser.add_argument('--print_every', '-pe', type=int, default=20)
   h_parser.add_argument('--max_iters', type=int, default=None)
+  h_parser.add_argument('--spot_instance', type=utils.str2bool, default=False)
 
   h = h_parser.parse_known_args()[0]
   return h
@@ -109,10 +111,8 @@ def fit_neural_copula(
 
   save_path = h.save_path
   if h.use_tb:
-    if h.model_to_load != '':
-      tb_path = h.model_to_load
-    else:
-      tb_path = get_tb_path(h)
+    tb_path = get_tb_path(h)
+    if not os.path.isdir(tb_path):
       os.mkdir(tb_path)
       with open(tb_path + '/h.json', 'w') as f:
         json.dump(h.__dict__, f, indent=4, sort_keys=True)
@@ -121,10 +121,9 @@ def fit_neural_copula(
     writer = SummaryWriter(tb_path)
     print('Saving tensorboard logs to ' + tb_path)
 
-  model, optimizer, scheduler, step = initialize(h)
-  model, optimizer, scheduler, step = load_checkpoint(model, optimizer,
-                                                      scheduler, step,
-                                                      h.model_to_load)
+  model, optimizer, scheduler, start_epoch, use_stable_nll = initialize(h)
+  model, optimizer, scheduler, start_epoch, use_stable_nll = load_checkpoint(
+      model, optimizer, scheduler, start_epoch, use_stable_nll, save_path)
 
   total_params = sum(p.numel() for p in model.parameters())
   print(
@@ -139,17 +138,18 @@ def fit_neural_copula(
   t.autograd.set_detect_anomaly(h.set_detect_anomaly)
 
   # fit MDMA
-  if h.eval_validation:
-    val_nll = eval_validation(model, val_loader, h)
+  # if h.eval_validation:
+  #   val_nll = eval_validation(model, val_loader, h)
   if h.use_HT and h.adaptive_coupling:
     set_adaptive_coupling(h, model, train_loader)
   clip_max_norm = 0
+  step = start_epoch * len(train_loader)
   inds = ...
   missing_data_mask = None
-  use_stable_nll = True
+  #use_stable_nll = True
   tic = time.time()
   es = utils.EarlyStopping(patience=h.es_patience)
-  for epoch in range(h.n_epochs):
+  for epoch in range(start_epoch, h.n_epochs):
     for batch_idx, batch in enumerate(train_loader):
       batch_data = batch[0][:, 0, :].to(device)
       if h.missing_data_pct > 0:
@@ -194,31 +194,36 @@ def fit_neural_copula(
         print_str = f'Iteration {step}, train nll: {nll_value:.4f}'
         print_str += f', obj value: {obj_value:.4f}'
 
-        if h.eval_validation:
-          print_str += f', val nll: {val_nll:.4f}'
+        # if h.eval_validation:
+        #   print_str += f', val nll: {val_nll:.4f}'
 
         toc = time.time()
         print_str += f', elapsed: {toc - tic:.4f}, {h.print_every / (toc - tic):.4f} iterations per sec.'
         tic = time.time()
         print(print_str)
 
-      if h.save_checkpoints and (step + 1) % h.checkpoint_every == 0:
-        t.save(
-            {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'scheduler': scheduler.state_dict(),
-                'step': step
-            }, save_path + '/checkpoint.pt')
-
-      if h.use_tb:
-        writer.add_scalar('lr', optimizer.param_groups[0]['lr'], step)
-        writer.add_scalar('loss/train', nll_value, step)
+        if h.use_tb:
+          writer.add_scalar('lr', optimizer.param_groups[0]['lr'], step)
+          writer.add_scalar('loss/train', nll_value, step)
 
       step += 1
       if step == h.max_iters:
         print(f'Terminating after {h.max_iters} iterations.')
         return model
+
+    pause_if_terminating(h)
+
+    if h.save_checkpoints:
+      cp_file = save_path + '/checkpoint.pt'
+      print('Saving model to ' + cp_file)
+      t.save(
+          {
+              'model': model.state_dict(),
+              'optimizer': optimizer.state_dict(),
+              'scheduler': scheduler.state_dict(),
+              'epoch': epoch + 1,
+              'use_stable_nll': use_stable_nll
+          }, cp_file)
 
     if h.eval_test:
       test_nll = eval_test(model, test_loader)
@@ -248,7 +253,9 @@ def eval_validation(model, loader, h):
       batch_data = batch[0][:, 0, :].to(device)
       if h.missing_data_pct > 0:
         missing_data_mask = batch[0][:, 1, :].to(device)
-      val_nll += nll(batch_data, missing_data_mask=missing_data_mask).item()
+        val_nll += nll(batch_data, missing_data_mask=missing_data_mask).item()
+      else:
+        val_nll += nll(batch_data).item()
   return val_nll / (batch_idx + 1)
 
 
@@ -293,19 +300,26 @@ def initialize(h):
                                                      patience=h.patience,
                                                      min_lr=1e-4,
                                                      factor=0.5)
-  step = 0
-  return model, optimizer, scheduler, step
+  start_epoch = 0
+  use_stable_nll = True
+  return model, optimizer, scheduler, start_epoch, use_stable_nll
 
 
-def load_checkpoint(model, optimizer, scheduler, step, checkpoint_to_load):
-  if checkpoint_to_load != '':
-    print('Loading model..')
-    checkpoint = t.load(checkpoint_to_load + '/checkpoint.pt')
+def load_checkpoint(model, optimizer, scheduler, epoch, use_stable_nll,
+                    save_path):
+  cp_file = save_path + '/checkpoint.pt'
+  if os.path.isfile(cp_file):
+    print('Loading model from ' + cp_file)
+    checkpoint = t.load(cp_file)
     model.load_state_dict(checkpoint['model'])
     optimizer.load_state_dict(checkpoint['optimizer'])
     scheduler.load_state_dict(checkpoint['scheduler'])
-    step = checkpoint['step']
-  return model, optimizer, scheduler, step
+    epoch = checkpoint['epoch']
+    use_stable_nll = checkpoint[
+        'use_stable_nll']  # assumes # stable iters < # iters in 1 epoch
+  else:
+    print('No model to load.')
+  return model, optimizer, scheduler, epoch, use_stable_nll
 
 
 def get_tb_path(h):
@@ -313,10 +327,11 @@ def get_tb_path(h):
       'dataset', 'n', 'm', 'L', 'mix_vars', 'batch_size', 'n_epochs', 'lr',
       'patience', 'missing_data_pct'
   ]
-  dt_str = str(datetime.datetime.now())[:-7].replace(' ',
-                                                     '-').replace(':', '-')
-  folder_name = [f'{utils.shorten(f)}:{h.__dict__[f]}'
-                 for f in fields] + [dt_str]
+  folder_name = [f'{utils.shorten(f)}:{h.__dict__[f]}' for f in fields]
+  if h.add_dt_str:
+    dt_str = str(datetime.datetime.now())[:-7].replace(' ',
+                                                       '-').replace(':', '-')
+    folder_name += [dt_str]
   if h.exp_name != '':
     folder_name = [h.exp_name] + folder_name
   folder_name = '_'.join(folder_name)
@@ -336,3 +351,13 @@ def set_adaptive_coupling(h, model, train_loader):
 
   model.create_adaptive_couplings(batches)
   print('Using adaptive variable coupling')
+
+
+def pause_if_terminating(h):
+  # If running on AWS Spot instance, pause to avoid corruption if instance is terminating
+  if h.spot_instance:
+    status_code = requests.get(
+        "http://169.254.169.254/latest/meta-data/spot/instance-action"
+    ).status_code
+    if status_code != 404:
+      time.sleep(150)
