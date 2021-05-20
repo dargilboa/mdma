@@ -12,7 +12,7 @@ from optim.adam import Adam
 from optim.lr_scheduler import ReduceLROnPlateau
 
 from data.gas import GAS
-from data.bsds300 import BSDS300
+#from data.bsds300 import BSDS300
 from data.hepmass import HEPMASS
 from data.miniboone import MINIBOONE
 from data.power import POWER
@@ -79,9 +79,10 @@ def load_dataset(args):
       missing_traindata[np.where(mask)] = np.nan
       imputer = KNNImputer(n_neighbors=3)
       imputed = []
-      for block in np.array_split(missing_traindata, 10000):
+      for block in np.array_split(missing_traindata, 100):
         knn_data = imputer.fit_transform(block)
         imputed += [knn_data]
+        print('.')
       all_imputed = np.concatenate(imputed)
       all_imputed = np.squeeze(all_imputed)
 
@@ -128,9 +129,10 @@ def load_dataset(args):
       missing_valdata[np.where(mask)] = np.nan
       imputer = KNNImputer(n_neighbors=3)
       imputed = []
-      for block in np.array_split(missing_valdata, 10000):
+      for block in np.array_split(missing_valdata, 100):
         knn_data = imputer.fit_transform(block)
         imputed += [knn_data]
+        print('.')
       all_imputed = np.concatenate(imputed)
       all_imputed = np.squeeze(all_imputed)
       #knn_data = imputer.fit_transform(missing_valdata)
