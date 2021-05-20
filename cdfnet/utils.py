@@ -255,9 +255,9 @@ def create_loaders(data, batch_size):
   # create dataloaders from list of data arrays or tensors
   train_data, val_data, test_data = data
   if type(train_data) is not t.Tensor:
-    train_data = t.Tensor(train_data)
-    val_data = t.Tensor(val_data)
-    test_data = t.Tensor(test_data)
+    train_data = t.Tensor(np.expand_dims(train_data, 1))
+    val_data = t.Tensor(np.expand_dims(val_data, 1))
+    test_data = t.Tensor(np.expand_dims(test_data, 1))
   train_dataset = TensorDataset(train_data)
   train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
   val_dataset = TensorDataset(val_data)
