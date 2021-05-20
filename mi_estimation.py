@@ -102,7 +102,7 @@ def run_mi_estimation(d=10,
   # plt.xlabel('$\mathrm{dim}(X_1)$')
   # plt.legend()
   # plt.show()
-  return all_mi_ests_all_reps
+  return all_mi_ests_all_reps, mis
 
 
 if __name__ == '__main__':
