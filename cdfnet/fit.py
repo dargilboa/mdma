@@ -51,16 +51,16 @@ def get_default_h(parent=None):
   h_parser.add_argument('--b_bias', type=float, default=0)
   h_parser.add_argument('--a_std', type=float, default=.1)
   # fitting
-  h_parser.add_argument('--n_epochs', '-ne', type=int, default=10)
-  h_parser.add_argument('--batch_size', '-b', type=int, default=100)
+  h_parser.add_argument('--n_epochs', '-ne', type=int, default=1000)
+  h_parser.add_argument('--batch_size', '-b', type=int, default=500)
   h_parser.add_argument('--lambda_l2', type=float, default=0)
   h_parser.add_argument('--opt',
                         type=str,
                         default='adam',
                         choices=['adam', 'sgd'])
-  h_parser.add_argument('--lr', type=float, default=5e-3)
-  h_parser.add_argument('--patience', '-p', type=int, default=10)
-  h_parser.add_argument('--es_patience', '-esp', type=int, default=30)
+  h_parser.add_argument('--lr', type=float, default=.01)
+  h_parser.add_argument('--patience', '-p', type=int, default=30)
+  h_parser.add_argument('--es_patience', '-esp', type=int, default=50)
   h_parser.add_argument('--stable_nll_iters', type=int, default=5)
   h_parser.add_argument('--gaussian_noise', type=float, default=0)
   h_parser.add_argument('--subsample_inds', type=utils.str2bool, default=False)

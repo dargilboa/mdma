@@ -71,15 +71,25 @@ def load_dataset(args):
           torch.tensor(np.expand_dims(mice_data, 1)).float().to(args.device))
     elif args.missing_data_strategy == 'knn':
       traindata = dataset.trn.x
-      mask = np.random.rand(*traindata.shape) > args.missing_data_pct
-      missing_traindata = traindata + mask * np.nan
-      imputer = KNNImputer(n_neighbors=2)
-      knn_data = imputer.fit_transform(missing_traindata)
+      mask = np.random.rand(*traindata.shape) < args.missing_data_pct
+      # missing_traindata = traindata + mask * np.nan
+      # imputer = KNNImputer(n_neighbors=2)
+      # knn_data = imputer.fit_transform(missing_traindata)
+      missing_traindata = traindata
+      missing_traindata[np.where(mask)] = np.nan
+      imputer = KNNImputer(n_neighbors=3)
+      imputed = []
+      for block in np.array_split(missing_traindata, 10000):
+        knn_data = imputer.fit_transform(block)
+        imputed += [knn_data]
+      all_imputed = np.concatenate(imputed)
+      all_imputed = np.squeeze(all_imputed)
+
       print(
           f'Created dataset using KNN, missing proportion {args.missing_data_pct}'
       )
       dataset_train = torch.utils.data.TensorDataset(
-          torch.tensor(np.expand_dims(knn_data, 1)).float().to(args.device))
+          torch.tensor(np.expand_dims(all_imputed, 1)).float().to(args.device))
     else:
       # mean imputation
       data_and_mask = np.array([dataset.trn.x, mask]).swapaxes(0, 1)
@@ -112,15 +122,23 @@ def load_dataset(args):
           torch.tensor(mice_data).float().to(args.device))
     elif args.missing_data_strategy == 'knn':
       valdata = dataset.val.x
-      mask = np.random.rand(*valdata.shape) > args.missing_data_pct
-      missing_valdata = valdata + mask * np.nan
-      imputer = KNNImputer(n_neighbors=2)
-      knn_data = imputer.fit_transform(missing_valdata)
+      mask = np.random.rand(*valdata.shape) < args.missing_data_pct
+      #missing_valdata = valdata + mask * np.nan
+      missing_valdata = valdata
+      missing_valdata[np.where(mask)] = np.nan
+      imputer = KNNImputer(n_neighbors=3)
+      imputed = []
+      for block in np.array_split(missing_valdata, 10000):
+        knn_data = imputer.fit_transform(block)
+        imputed += [knn_data]
+      all_imputed = np.concatenate(imputed)
+      all_imputed = np.squeeze(all_imputed)
+      #knn_data = imputer.fit_transform(missing_valdata)
       print(
           f'Created dataset using KNN, missing proportion {args.missing_data_pct}'
       )
       dataset_valid = torch.utils.data.TensorDataset(
-          torch.tensor(knn_data).float().to(args.device))
+          torch.tensor(all_imputed).float().to(args.device))
   else:
     dataset_valid = torch.utils.data.TensorDataset(
         torch.from_numpy(dataset.val.x).float().to(args.device))
