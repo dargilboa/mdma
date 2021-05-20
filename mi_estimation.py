@@ -50,7 +50,7 @@ def run_mi_estimation(d=10,
     h.model_to_load = ''
     h.save_path = '.'
     h.M = M
-    h.patience = 1
+    h.patience = 200
     loaders = utils.create_loaders([data, None, None], h.batch_size)
     model = fit.fit_neural_copula(h, loaders)
 
