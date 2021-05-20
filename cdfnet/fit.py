@@ -8,7 +8,7 @@ import datetime
 import json
 import os
 import time
-import requests
+#import requests
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -127,7 +127,7 @@ def fit_neural_copula(
 
   total_params = sum(p.numel() for p in model.parameters())
   print(
-      f"Running {n_iters} iterations. Model contains {total_params} parameters. Using device {t.cuda.current_device()}"
+      f"Running {n_iters} iterations. Model contains {total_params} parameters."
   )
   h.total_params = total_params
   print(h.__dict__)
@@ -211,7 +211,8 @@ def fit_neural_copula(
         print(f'Terminating after {h.max_iters} iterations.')
         return model
 
-    pause_if_terminating(h)
+
+#    pause_if_terminating(h)
 
     if h.save_checkpoints:
       cp_file = save_path + '/checkpoint.pt'
@@ -353,11 +354,11 @@ def set_adaptive_coupling(h, model, train_loader):
   print('Using adaptive variable coupling')
 
 
-def pause_if_terminating(h):
-  # If running on AWS Spot instance, pause to avoid corruption if instance is terminating
-  if h.spot_instance:
-    status_code = requests.get(
-        "http://169.254.169.254/latest/meta-data/spot/instance-action"
-    ).status_code
-    if status_code != 404:
-      time.sleep(150)
+# def pause_if_terminating(h):
+#   # If running on AWS Spot instance, pause to avoid corruption if instance is terminating
+#   if h.spot_instance:
+#     status_code = requests.get(
+#         "http://169.254.169.254/latest/meta-data/spot/instance-action"
+#     ).status_code
+#     if status_code != 404:
+#       time.sleep(150)

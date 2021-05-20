@@ -254,16 +254,26 @@ def load_dataset(args):
 def create_loaders(data, batch_size):
   # create dataloaders from list of data arrays or tensors
   train_data, val_data, test_data = data
-  if type(train_data) is not t.Tensor:
+  if type(train_data) == np.ndarray:
     train_data = t.Tensor(np.expand_dims(train_data, 1))
-    val_data = t.Tensor(np.expand_dims(val_data, 1))
-    test_data = t.Tensor(np.expand_dims(test_data, 1))
   train_dataset = TensorDataset(train_data)
   train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-  val_dataset = TensorDataset(val_data)
-  val_loader = DataLoader(val_dataset, batch_size=batch_size)
-  test_dataset = TensorDataset(test_data)
-  test_loader = DataLoader(test_dataset, batch_size=batch_size)
+
+  if val_data is None:
+    val_loader = None
+  else:
+    if type(val_data) == np.ndarray:
+      val_data = t.Tensor(np.expand_dims(val_data, 1))
+    val_dataset = TensorDataset(val_data)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+
+  if test_data is None:
+    test_loader = None
+  else:
+    if type(test_data) == np.ndarray:
+      test_data = t.Tensor(np.expand_dims(test_data, 1))
+    test_dataset = TensorDataset(test_data)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
   return train_loader, val_loader, test_loader
 

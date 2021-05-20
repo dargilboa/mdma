@@ -120,7 +120,7 @@ class CDFNet(nn.Module):
     # compute CDF using a feed-forward network
     for w, b, a in zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as):
       phis = t.einsum('mjik,jikl->mjil', phis, self.nonneg_m(w)) + b
-      phis = t.phis + t.tanh(phis) * t.tanh(a)
+      phis = phis + t.tanh(phis) * t.tanh(a)
 
     phis = t.einsum('mjik,jikl->mjil', phis, self.nonneg_m(
         sliced_ws[-1])) + sliced_bs[-1]
