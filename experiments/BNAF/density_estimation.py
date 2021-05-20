@@ -16,7 +16,6 @@ from data.gas import GAS
 from data.hepmass import HEPMASS
 from data.miniboone import MINIBOONE
 from data.power import POWER
-import miceforest as mf
 from sklearn.impute import KNNImputer
 import pandas as pd
 
@@ -52,6 +51,7 @@ def load_dataset(args):
       dataset_train = torch.utils.data.TensorDataset(
           torch.tensor(np.expand_dims(data, 1)).float().to(args.device))
     elif args.missing_data_strategy == 'mice':
+      import miceforest as mf
       #
       # mice_data = np.load(
       #     f'/data/data/mice/gas_mice_{args.missing_data_pct}.npy')
