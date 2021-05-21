@@ -279,9 +279,10 @@ class CDFNet(nn.Module):
                                     self.mera_couplings):
       # import pdb
       T = t.stack([
-          t.stack((t.prod(T[:, coupling[0], :],
-                          dim=1), t.prod(T[:, coupling[1], :], dim=1)))
-          for coupling in couplings
+          t.stack([
+              t.prod(T[:, coupling[0], :], dim=1),
+              t.prod(T[:, coupling[1], :], dim=1)
+          ]) for coupling in couplings
       ])
       a_s = self.nonneg(a_s)
       a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
@@ -289,7 +290,6 @@ class CDFNet(nn.Module):
       a2_s = t.sigmoid(a2_s).unsqueeze(1)
       a2_s = t.cat((a2_s, 1 - a2_s), dim=1)
       # pdb.set_trace()
-      # a2_s = a2_s / t.sum(a2_s, dim=1, keepdim=True)
       T = t.sum(t.einsum('ijlk,ijkm,ijkm->lijm', T, a_s, a2_s), dim=2)
 
     # pdb.set_trace()
