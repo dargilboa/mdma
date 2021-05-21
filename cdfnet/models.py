@@ -2,7 +2,7 @@ import torch as t
 import torch.nn as nn
 import numpy as np
 from cdfnet import utils
-#from cdf import fastCDFOnSample
+# from cdf import fastCDFOnSample
 from operator import itemgetter
 # from opt_einsum import contract, contract_expression
 from numpy import concatenate
