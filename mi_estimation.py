@@ -51,7 +51,7 @@ def run_mi_estimation(d=10,
     h.save_path = '.'
     h.M = M
     h.patience = 200
-    loaders = utils.create_loaders([data, 0, 0], h.batch_size)
+    loaders = utils.create_loaders([data, None, None], h.batch_size)
     model = fit.fit_neural_copula(h, loaders)
 
     print('Sampling')
@@ -84,25 +84,25 @@ def run_mi_estimation(d=10,
         all_mi_ests_all_reps)
   all_mi_ests_all_reps = np.array(all_mi_ests_all_reps)
 
-  # plotting
-  plt.figure()
-  plt.scatter(ind_rng, mis, label='ground truth')
-  all_mi_ests_all_reps = np.mean(all_mi_ests_all_reps,
-                                 axis=1)  # mean over sample batches
-  m, s = all_mi_ests_all_reps.mean(axis=0), all_mi_ests_all_reps.std(axis=0)
-  plt.scatter(ind_rng, m, label='estimator')
-  plt.errorbar(ind_rng,
-               m,
-               yerr=[m - s, m + s],
-               color='orange',
-               ls='none',
-               capsize=5)
-  plt.ylabel('$I(X_1;X_2)$')
-  plt.xticks(ind_rng)
-  plt.xlabel('$\mathrm{dim}(X_1)$')
-  plt.legend()
-  plt.show()
-  return all_mi_ests_all_reps
+  # # plotting
+  # plt.figure()
+  # plt.scatter(ind_rng, mis, label='ground truth')
+  # all_mi_ests_all_reps = np.mean(all_mi_ests_all_reps,
+  #                                axis=1)  # mean over sample batches
+  # m, s = all_mi_ests_all_reps.mean(axis=0), all_mi_ests_all_reps.std(axis=0)
+  # plt.scatter(ind_rng, m, label='estimator')
+  # plt.errorbar(ind_rng,
+  #              m,
+  #              yerr=[m - s, m + s],
+  #              color='orange',
+  #              ls='none',
+  #              capsize=5)
+  # plt.ylabel('$I(X_1;X_2)$')
+  # plt.xticks(ind_rng)
+  # plt.xlabel('$\mathrm{dim}(X_1)$')
+  # plt.legend()
+  # plt.show()
+  return all_mi_ests_all_reps, mis
 
 
 if __name__ == '__main__':

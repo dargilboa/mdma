@@ -2,6 +2,7 @@ import os
 import json
 import argparse
 import pprint
+import numpy as np
 import datetime
 import torch
 from torch.utils import data
@@ -11,10 +12,12 @@ from optim.adam import Adam
 from optim.lr_scheduler import ReduceLROnPlateau
 
 from data.gas import GAS
-from data.bsds300 import BSDS300
+#from data.bsds300 import BSDS300
 from data.hepmass import HEPMASS
 from data.miniboone import MINIBOONE
 from data.power import POWER
+from sklearn.impute import KNNImputer
+import pandas as pd
 
 NAF_PARAMS = {
     'power': (414213, 828258),
@@ -39,14 +42,108 @@ def load_dataset(args):
   else:
     raise RuntimeError()
 
-  dataset_train = torch.utils.data.TensorDataset(
-      torch.from_numpy(dataset.trn.x).float().to(args.device))
+  if args.missing_data_pct > 0:
+    # create missing data mask
+    mask = np.random.rand(*dataset.trn.x.shape) > args.missing_data_pct
+
+    if args.missing_data_strategy == 'drop':
+      data = dataset.trn.x[np.where(np.product(mask, axis=1) == 1)[0], :]
+      dataset_train = torch.utils.data.TensorDataset(
+          torch.tensor(np.expand_dims(data, 1)).float().to(args.device))
+    elif args.missing_data_strategy == 'mice':
+      import miceforest as mf
+      #
+      # mice_data = np.load(
+      #     f'/data/data/mice/gas_mice_{args.missing_data_pct}.npy')
+      traindata = dataset.trn.x
+      df = pd.DataFrame(data=traindata)
+      data_amp = mf.ampute_data(df, perc=args.missing_data_pct)
+      kdf = mf.KernelDataSet(data_amp, save_all_iterations=True)
+      kdf.mice(3)
+      completed_data = kdf.complete_data()
+      mice_data = completed_data.to_numpy()
+      print(
+          f'Created dataset using MICE, missing proportion {args.missing_data_pct}'
+      )
+
+      # create tensordataset from tensor
+      dataset_train = torch.utils.data.TensorDataset(
+          torch.tensor(np.expand_dims(mice_data, 1)).float().to(args.device))
+    elif args.missing_data_strategy == 'knn':
+      traindata = dataset.trn.x
+      mask = np.random.rand(*traindata.shape) < args.missing_data_pct
+      # missing_traindata = traindata + mask * np.nan
+      # imputer = KNNImputer(n_neighbors=2)
+      # knn_data = imputer.fit_transform(missing_traindata)
+      missing_traindata = traindata
+      missing_traindata[np.where(mask)] = np.nan
+      imputer = KNNImputer(n_neighbors=3)
+      imputed = []
+      for block in np.array_split(missing_traindata, 100):
+        knn_data = imputer.fit_transform(block)
+        imputed += [knn_data]
+        print('.')
+      all_imputed = np.concatenate(imputed)
+      all_imputed = np.squeeze(all_imputed)
+
+      print(
+          f'Created dataset using KNN, missing proportion {args.missing_data_pct}'
+      )
+      dataset_train = torch.utils.data.TensorDataset(
+          torch.tensor(np.expand_dims(all_imputed, 1)).float().to(args.device))
+    else:
+      # mean imputation
+      data_and_mask = np.array([dataset.trn.x, mask]).swapaxes(0, 1)
+      dataset_train = torch.utils.data.TensorDataset(
+          torch.tensor(data_and_mask).float().to(args.device))
+
+  else:
+    dataset_train = torch.utils.data.TensorDataset(
+        torch.tensor(np.expand_dims(dataset.trn.x, 1)).float().to(args.device))
+
+  # dataset_train = torch.utils.data.TensorDataset(
+  #     torch.from_numpy(dataset.trn.x).float().to(args.device))
   data_loader_train = torch.utils.data.DataLoader(dataset_train,
                                                   batch_size=args.batch_dim,
                                                   shuffle=True)
 
-  dataset_valid = torch.utils.data.TensorDataset(
-      torch.from_numpy(dataset.val.x).float().to(args.device))
+  if args.missing_data_pct > 0:
+    if args.missing_data_strategy == 'mice':
+      valdata = dataset.val.x
+      df = pd.DataFrame(data=valdata)
+      data_amp = mf.ampute_data(df, perc=args.missing_data_pct)
+      kdf = mf.KernelDataSet(data_amp, save_all_iterations=True)
+      kdf.mice(3)
+      completed_data = kdf.complete_data()
+      mice_data = completed_data.to_numpy()
+      print(
+          f'Created dataset using MICE, missing proportion {args.missing_data_pct}'
+      )
+      dataset_valid = torch.utils.data.TensorDataset(
+          torch.tensor(mice_data).float().to(args.device))
+    elif args.missing_data_strategy == 'knn':
+      valdata = dataset.val.x
+      mask = np.random.rand(*valdata.shape) < args.missing_data_pct
+      #missing_valdata = valdata + mask * np.nan
+      missing_valdata = valdata
+      missing_valdata[np.where(mask)] = np.nan
+      imputer = KNNImputer(n_neighbors=3)
+      imputed = []
+      for block in np.array_split(missing_valdata, 100):
+        knn_data = imputer.fit_transform(block)
+        imputed += [knn_data]
+        print('.')
+      all_imputed = np.concatenate(imputed)
+      all_imputed = np.squeeze(all_imputed)
+      #knn_data = imputer.fit_transform(missing_valdata)
+      print(
+          f'Created dataset using KNN, missing proportion {args.missing_data_pct}'
+      )
+      dataset_valid = torch.utils.data.TensorDataset(
+          torch.tensor(all_imputed).float().to(args.device))
+  else:
+    dataset_valid = torch.utils.data.TensorDataset(
+        torch.from_numpy(dataset.val.x).float().to(args.device))
   data_loader_valid = torch.utils.data.DataLoader(dataset_valid,
                                                   batch_size=args.batch_dim,
                                                   shuffle=False)
@@ -108,14 +205,15 @@ def create_model(args, verbose=False):
 
 def save_model(model, optimizer, epoch, args):
   def f():
-    if args.save:
-      print('Saving model..')
-      torch.save(
-          {
-              'model': model.state_dict(),
-              'optimizer': optimizer.state_dict(),
-              'epoch': epoch
-          }, os.path.join(args.load or args.path, 'checkpoint.pt'))
+    return 0
+    # if args.save:
+    #   print('Saving model..')
+    #   torch.save(
+    #       {
+    #           'model': model.state_dict(),
+    #           'optimizer': optimizer.state_dict(),
+    #           'epoch': epoch
+    #       }, os.path.join(args.load or args.path, 'checkpoint.pt'))
 
   return f
 
@@ -155,7 +253,23 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid,
     t = tqdm(data_loader_train, smoothing=0, ncols=80)
     train_loss = []
 
-    for x_mb, in t:
+    for batch, in t:
+      # if args.missing_data_pct > 0:
+      #   x_mb = batch[:, 0, :]
+      #   mask = batch[:, 1, :]
+      #   if args.missing_data_strategy == 'drop':
+      #     x_mb = x_mb[torch.where(torch.prod(mask, dim=1) == 1)[0], :]
+      #   elif args.missing_data_strategy == 'mean_imputation':
+      #     means = torch.mean(x_mb, dim=0)
+      #     x_mb = x_mb * mask + means * (1 - mask)
+      if args.missing_data_pct > 0 and args.missing_data_strategy == 'mean_imputation':
+        x_mb = batch[:, 0, :]
+        mask = batch[:, 1, :]
+        means = torch.mean(x_mb, dim=0)
+        x_mb = x_mb * mask + means * (1 - mask)
+      else:
+        x_mb = batch[:, 0, :]
+
       loss = -compute_log_p_x(model, x_mb).mean()
 
       loss.backward()
@@ -174,11 +288,16 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid,
         compute_log_p_x(model, x_mb).mean().detach()
         for x_mb, in data_loader_valid
     ], -1).mean()
+    test_loss = -torch.stack([
+        compute_log_p_x(model, x_mb).mean().detach()
+        for x_mb, in data_loader_test
+    ], -1).mean()
     optimizer.swap()
 
-    print('Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f}'.
-          format(epoch + 1, args.start_epoch + args.epochs, train_loss.item(),
-                 validation_loss.item()))
+    print(
+        'Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f} -- test_loss: {:4.3f}'
+        .format(epoch + 1, args.start_epoch + args.epochs, train_loss.item(),
+                validation_loss.item(), test_loss.item()))
 
     stop = scheduler.step(validation_loss,
                           callback_best=save_model(model, optimizer, epoch + 1,
@@ -189,11 +308,12 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid,
       writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch + 1)
       writer.add_scalar('loss/validation', validation_loss.item(), epoch + 1)
       writer.add_scalar('loss/train', train_loss.item(), epoch + 1)
+      writer.add_scalar('loss/test', test_loss.item(), epoch + 1)
 
     if stop:
       break
 
-  load_model(model, optimizer, args)()
+  #load_model(model, optimizer, args)()
   optimizer.swap()
   validation_loss = -torch.stack([
       compute_log_p_x(model, x_mb).mean().detach()
@@ -208,11 +328,11 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid,
   print('Validation loss: {:4.3f}'.format(validation_loss.item()))
   print('Test loss:       {:4.3f}'.format(test_loss.item()))
 
-  if args.save:
-    with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
-      print('###### Stop training after {} epochs!'.format(epoch + 1), file=f)
-      print('Validation loss: {:4.3f}'.format(validation_loss.item()), file=f)
-      print('Test loss:       {:4.3f}'.format(test_loss.item()), file=f)
+  #if args.save:
+  with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
+    print('###### Stop training after {} epochs!'.format(epoch + 1), file=f)
+    print('Validation loss: {:4.3f}'.format(validation_loss.item()), file=f)
+    print('Test loss:       {:4.3f}'.format(test_loss.item()), file=f)
 
 
 def main():
@@ -248,27 +368,30 @@ def main():
   parser.add_argument('--load', type=str, default=None)
   parser.add_argument('--save', action='store_true', default=True)
   parser.add_argument('--tensorboard', type=str, default='tensorboard')
+  parser.add_argument('--missing_data_pct', type=float, default=0.0)
+  parser.add_argument('--missing_data_strategy', type=str, default='drop')
 
   args = parser.parse_args()
 
   print('Arguments:')
   pprint.pprint(args.__dict__)
 
-  args.path = './checkpoint'
-  # args.path = os.path.join(
-  #     'checkpoint', '{}{}_layers{}_h{}_flows{}{}_{}'.format(
-  #         args.expname + ('_' if args.expname != '' else ''), args.dataset,
-  #         args.layers, args.hidden_dim, args.flows,
-  #         '_' + args.residual if args.residual else '',
-  #         str(datetime.datetime.now())[:-7].replace(' ',
-  #                                                   '-').replace(':', '-')))
+  #args.path = './checkpoint'
+  args.path = os.path.join(
+      '/data/tb', '{}{}_layers{}_h{}_flows{}{}_mdp_{}_mds_{}_{}'.format(
+          args.expname + ('_' if args.expname != '' else ''), args.dataset,
+          args.layers, args.hidden_dim, args.flows,
+          '_' + args.residual if args.residual else '', args.missing_data_pct,
+          args.missing_data_strategy,
+          str(datetime.datetime.now())[:-7].replace(' ',
+                                                    '-').replace(':', '-')))
 
   print('Loading dataset..')
   data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
 
   if args.save and not args.load:
     print('Creating directory experiment..')
-    #os.mkdir(args.path)
+    os.mkdir(args.path)
     with open(os.path.join(args.path, 'args.json'), 'w') as f:
       json.dump(args.__dict__, f, indent=4, sort_keys=True)
 

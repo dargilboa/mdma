@@ -254,16 +254,26 @@ def load_dataset(args):
 def create_loaders(data, batch_size):
   # create dataloaders from list of data arrays or tensors
   train_data, val_data, test_data = data
-  if type(train_data) is not t.Tensor:
-    train_data = t.Tensor(train_data)
-    val_data = t.Tensor(val_data)
-    test_data = t.Tensor(test_data)
+  if type(train_data) == np.ndarray:
+    train_data = t.Tensor(np.expand_dims(train_data, 1))
   train_dataset = TensorDataset(train_data)
   train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-  val_dataset = TensorDataset(val_data)
-  val_loader = DataLoader(val_dataset, batch_size=batch_size)
-  test_dataset = TensorDataset(test_data)
-  test_loader = DataLoader(test_dataset, batch_size=batch_size)
+
+  if val_data is None:
+    val_loader = None
+  else:
+    if type(val_data) == np.ndarray:
+      val_data = t.Tensor(np.expand_dims(val_data, 1))
+    val_dataset = TensorDataset(val_data)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+
+  if test_data is None:
+    test_loader = None
+  else:
+    if type(test_data) == np.ndarray:
+      test_data = t.Tensor(np.expand_dims(test_data, 1))
+    test_dataset = TensorDataset(test_data)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
   return train_loader, val_loader, test_loader
 
@@ -286,3 +296,51 @@ def str2bool(v):
 def save_file(file_name):
   plt.savefig(file_name)
   os.system('pdfcrop "' + file_name + '" "' + file_name + '"')
+
+
+class EarlyStopping(object):
+  def __init__(self, mode='min', min_delta=0, patience=10, percentage=False):
+    self.mode = mode
+    self.min_delta = min_delta
+    self.patience = patience
+    self.best = None
+    self.num_bad_epochs = 0
+    self.is_better = None
+    self._init_is_better(mode, min_delta, percentage)
+
+    if patience == 0:
+      self.is_better = lambda a, b: True
+      self.step = lambda a: False
+
+  def step(self, metrics):
+    if self.best is None:
+      self.best = metrics
+      return False
+
+    if np.isnan(metrics):
+      return True
+
+    if self.is_better(metrics, self.best):
+      self.num_bad_epochs = 0
+      self.best = metrics
+    else:
+      self.num_bad_epochs += 1
+
+    if self.num_bad_epochs >= self.patience:
+      return True
+
+    return False
+
+  def _init_is_better(self, mode, min_delta, percentage):
+    if mode not in {'min', 'max'}:
+      raise ValueError('mode ' + mode + ' is unknown!')
+    if not percentage:
+      if mode == 'min':
+        self.is_better = lambda a, best: a < best - min_delta
+      if mode == 'max':
+        self.is_better = lambda a, best: a > best + min_delta
+    else:
+      if mode == 'min':
+        self.is_better = lambda a, best: a < best - (best * min_delta / 100)
+      if mode == 'max':
+        self.is_better = lambda a, best: a > best + (best * min_delta / 100)

@@ -8,9 +8,6 @@ from operator import itemgetter
 from numpy import concatenate
 from torch.nn import AvgPool1d, AvgPool2d
 
-einsum = t.einsum
-# einsum = contract
-
 
 class CDFNet(nn.Module):
   def __init__(
@@ -104,32 +101,22 @@ class CDFNet(nn.Module):
     self.mix_vars = mix_vars
     self.n_mix_terms = n_mix_terms
     if self.mix_vars:
-      # save permutations and parameters
-      # self.mix_params = t.nn.ParameterList(
-      #   [nn.Parameter((1 / np.sqrt(n_mix_terms)) * t.randn(self.n, b)) for b in range(self.d - 1, self.d - n_mix_terms, -1)])
-      # nonzero_inds = [[k, i, i + j] for j in range(1, self.n_mix_terms + 1)
-      #                 for i in range(self.d - j)
-      #                 for k in range(self.n)]  # n_mix_terms leading diagonals
+      # permute the parameters
       nonzero_inds = [[i, i + j] for j in range(1, self.n_mix_terms + 1)
-                      for i in range(self.d - j)
-                      ]  # n_mix_terms leading diagonals
+                      for i in range(self.d - j)]
       perms = [np.random.permutation(self.d) for _ in range(self.n)]
       permuted_nonzero_inds = []
       for n_perm, perm in enumerate(perms):
         permuted_nonzero_inds += [[n_perm, perm[inds[0]], perm[inds[1]]]
                                   for inds in nonzero_inds]
 
-      # permuted_nonzero_inds = [[perm[inds[0]], perms[inds[1]]]
-      #                          for perm in perms for inds in nonzero_inds]
       params = (1 / np.sqrt(self.n_mix_terms)) * t.randn(
           len(permuted_nonzero_inds))
-      # zeros = t.zeros((self.n, self.d, self.d), requires_grad=False)
-      # zeros[list(zip(*permuted_nonzero_inds))] = params
-      # self.mix_params = nn.Parameter(zeros)
       self.mix_params = nn.Parameter(
           t.sparse_coo_tensor(list(zip(*permuted_nonzero_inds)),
                               params,
                               size=(self.n, self.d, self.d)).to_dense())
+
       # add gradient mask to prevent the zero entries from changing
       gradient_mask = t.zeros((self.n, self.d, self.d))
       gradient_mask[list(zip(*permuted_nonzero_inds))] = 1.0
@@ -147,16 +134,16 @@ class CDFNet(nn.Module):
 
     # compute CDF using a feed-forward network
     for w, b, a in zip(sliced_ws[:-1], sliced_bs[:-1], sliced_as):
-      phis = einsum('mjik,jikl->mjil', phis, self.nonneg_m(w)) + b
+      phis = t.einsum('mjik,jikl->mjil', phis, self.nonneg_m(w)) + b
       phis = phis + t.tanh(phis) * t.tanh(a)
 
-    phis = einsum('mjik,jikl->mjil', phis, self.nonneg_m(
+    phis = t.einsum('mjik,jikl->mjil', phis, self.nonneg_m(
         sliced_ws[-1])) + sliced_bs[-1]
 
     phis = self.phi(phis)
     return t.squeeze(phis, -1)
 
-  def phidots(self, X, inds=...):
+  def phidots(self, X, inds=..., missing_data_mask=None):
     # X is a B x dim(inds) tensor
     # returns B x d x n tensor
     X = self.expand_X(X)  # B x dim(inds) x n x 1
@@ -181,8 +168,16 @@ class CDFNet(nn.Module):
         sliced_ws[-1])) + sliced_bs[-1]
     phidots = t.einsum('mjik,jikl,mjil->mjil', phidots,
                        self.nonneg_m(sliced_ws[-1]), utils.sigmoiddot(phis))
+    phidots = t.squeeze(phidots, -1)
 
-    return t.squeeze(phidots, -1)
+    # mask out missing data
+    if missing_data_mask is not None:
+      assert self.mix_vars is False  # we can't marginalize if variables are mixed
+      # mask is zero at missing data entries
+      phidots = t.einsum('mj,mji->mji', missing_data_mask, phidots) + \
+                t.einsum('mj,mji->mji', 1 - missing_data_mask, t.ones_like(phidots))
+
+    return phidots
 
   def get_stabilizer(self, phidots, eps=1e-40):
     if self.use_HT:
@@ -224,12 +219,12 @@ class CDFNet(nn.Module):
       # assuming CP
       return self.CP_contraction(T)
 
-  def likelihood(self, X, inds=..., stabilize=False):
+  def likelihood(self, X, inds=..., stabilize=False, missing_data_mask=None):
     # Evaluate joint likelihood at X
     # X : B x d tensor of sample points
     # inds : list of indices to restrict to (if interested in a subset of variables)
 
-    phidots = self.phidots(X, inds)
+    phidots = self.phidots(X, inds, missing_data_mask=missing_data_mask)
     fm = None
     # phidots is B x d x n
 
@@ -245,7 +240,7 @@ class CDFNet(nn.Module):
     # T is a B x len(inds) x n tensor
     T = t.prod(T, 1)  # prod over inds
     a = self.nonneg(self.a_s[-1])
-    return einsum('mi,i->m', T, a / a.sum())
+    return t.einsum('mi,i->m', T, a / a.sum())
 
   def HT_contraction(self, T, inds=...):
     # T is a B x len(inds) x n tensor (some combination of phis and phidots) that is contracted with a
@@ -314,8 +309,16 @@ class CDFNet(nn.Module):
     log_marginal_density = t.log(self.marginal_likelihood(X))
     return -t.mean(log_marginal_density)
 
-  def log_density(self, X, inds=..., eps=1e-40, stabilize=False):
-    lk, fm = self.likelihood(X, inds, stabilize=stabilize)
+  def log_density(self,
+                  X,
+                  inds=...,
+                  eps=1e-40,
+                  stabilize=False,
+                  missing_data_mask=None):
+    lk, fm = self.likelihood(X,
+                             inds,
+                             stabilize=stabilize,
+                             missing_data_mask=missing_data_mask)
     if stabilize:
       if inds is ...:
         n_vars = self.d
@@ -325,15 +328,14 @@ class CDFNet(nn.Module):
     else:
       return t.log(lk + eps)
 
-  def nll(self, X, inds=..., stabilize=False):
+  def nll(self, X, inds=..., stabilize=False, missing_data_mask=None):
     # negative log likelihood
     # X : M x d tensor of sample points
-    return -t.mean(self.log_density(X, inds=inds, stabilize=stabilize))
-
-  def median_nll(self, X, inds=..., stabilize=False):
-    # negative log likelihood
-    # X : M x d tensor of sample points
-    return t.median(-self.log_density(X, inds=inds, stabilize=stabilize))
+    return -t.mean(
+        self.log_density(X,
+                         inds=inds,
+                         stabilize=stabilize,
+                         missing_data_mask=missing_data_mask))
 
   def sample(self,
              S,
