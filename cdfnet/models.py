@@ -4,7 +4,7 @@ import numpy as np
 from cdfnet import utils
 #from cdf import fastCDFOnSample
 from operator import itemgetter
-from opt_einsum import contract, contract_expression
+# from opt_einsum import contract, contract_expression
 from numpy import concatenate
 from torch.nn import AvgPool1d, AvgPool2d
 
@@ -77,18 +77,16 @@ class CDFNet(nn.Module):
       dim_l = self.d
       if self.use_MERA:
         self.a_MERAs = t.nn.ParameterList()
-        # self.a_MERAs += [
-        #     nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
-        # ]
+
       for _ in range(self.L_HT - 1):
-        if self.use_MERA:
-          self.a_MERAs += [
-              nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
-          ]
         dim_l = int(np.ceil(dim_l / self.HT_poolsize))
         self.a_HTs += [
             nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
         ]
+        if self.use_MERA:
+          self.a_MERAs += [
+              nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 2, 1, 1))
+          ]
 
       self.a_HTs += [nn.Parameter(a_scale * t.randn(1, self.n, 1))]
 
@@ -261,6 +259,8 @@ class CDFNet(nn.Module):
       T = T_full
 
     for a_s, couplings in zip(self.a_HTs, self.all_couplings):
+      # import pdb
+      # pdb.set_trace()
       T = [t.prod(T[:, coupling, :], dim=1) for coupling in couplings]
       # normalize sum of a_s across second dimension
       a_s = self.nonneg(a_s)
@@ -280,23 +280,21 @@ class CDFNet(nn.Module):
       T_full[:, inds, :] = T
       T = T_full
 
-    for a_s, a2_s, couplings, couplings2 in zip(self.a_HTs[:-1], self.a_MERAs,
-                                                self.all_couplings[:-1],
-                                                self.mera_couplings):
-
-      # disentangle (for MERA)
+    for a_s, a2_s, couplings in zip(self.a_HTs[:-1], self.a_MERAs,
+                                    self.mera_couplings):
       # import pdb
-      # pdb.set_trace()
-      T = [t.prod(T[:, coupling, :], dim=1) for coupling in couplings2]
-      a2_s = self.nonneg(a2_s)
-      a2_s = a2_s / t.sum(a2_s, dim=1, keepdim=True)  # this should be unitary
-      T = t.stack([t.matmul(phid, a) for phid, a in zip(T, a2_s)], dim=1)
-
-      # coarse-graining (for HT)
-      T = [t.prod(T[:, coupling, :], dim=1) for coupling in couplings]
+      T = t.stack([
+          t.stack((t.prod(T[:, coupling[0], :],
+                          dim=1), t.prod(T[:, coupling[1], :], dim=1)))
+          for coupling in couplings
+      ])
       a_s = self.nonneg(a_s)
       a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
-      T = t.stack([t.matmul(phid, a) for phid, a in zip(T, a_s)], dim=1)
+      a_s = a_s.unsqueeze(1)
+      a2_s = self.nonneg(a2_s)
+      a2_s = a2_s / t.sum(a2_s, dim=1, keepdim=True)
+      # pdb.set_trace()
+      T = t.sum(t.einsum('ijlk,ijkm,ijkm->lijm', T, a_s, a2_s), dim=2)
 
     T = [
         t.prod(T[:, coupling, :], dim=1) for coupling in self.all_couplings[-1]
@@ -414,12 +412,12 @@ class CDFNet(nn.Module):
   def create_mera_couplings(self):
     # create default coupling of variables used in the mera decomposition
     all_couplings = []
-    dim_l = self.d
-    for _ in range(self.L_HT - 1):
-      couplings = [[j, j + 1] if j + 1 < dim_l else [j, 0]
-                   for j in range(0, dim_l)]
-      dim_l = int(np.ceil(dim_l / self.HT_poolsize))
-      all_couplings.append(couplings)
+    for couplings in self.all_couplings[:-1]:
+      couplings2 = couplings.copy()
+      couplings2.append(couplings2[0])
+      couplings2 = [[couplings2[i], [couplings2[i][-1], couplings2[i + 1][0]]]
+                    for i in range(len(couplings))]
+      all_couplings.append(couplings2)
     return all_couplings
 
   def create_default_couplings(self):
@@ -491,6 +489,8 @@ class CDFNet(nn.Module):
         all_couplings.append(couplings)
 
     self.all_couplings = all_couplings
+    if self.use_MERA:
+      self.mera_couplings = self.create_mera_couplings()
 
   def cdf_regression_loss(self, X, inds=...):
     y = np.ones([X.shape[0]])
