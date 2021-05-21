@@ -82,7 +82,7 @@ class CDFNet(nn.Module):
         ]
         if self.use_MERA:
           self.a_MERAs += [
-              nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 2, 1, 1))
+              nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
           ]
 
       self.a_HTs += [nn.Parameter(a_scale * t.randn(1, self.n, 1))]
@@ -286,18 +286,18 @@ class CDFNet(nn.Module):
       a_s = self.nonneg(a_s)
       a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
       a_s = a_s.unsqueeze(1).expand(-1, 2, -1, -1)
-      a2_s = self.nonneg(a2_s)
-      a2_s = a2_s / t.sum(a2_s, dim=1, keepdim=True)
+      a2_s = t.sigmoid(a2_s).unsqueeze(1)
+      a2_s = t.cat((a2_s, 1 - a2_s), dim=1)
       # pdb.set_trace()
+      # a2_s = a2_s / t.sum(a2_s, dim=1, keepdim=True)
       T = t.sum(t.einsum('ijlk,ijkm,ijkm->lijm', T, a_s, a2_s), dim=2)
 
-    T = [
-        t.prod(T[:, coupling, :], dim=1) for coupling in self.all_couplings[-1]
-    ]
+    # pdb.set_trace()
+    T = t.prod(T[:, self.all_couplings[-1][0], :], dim=1)
     a_s = self.nonneg(self.a_HTs[-1])
     a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
-    T = t.stack([t.matmul(phid, a) for phid, a in zip(T, a_s)], dim=1)
-    return t.squeeze(T)
+    T = t.matmul(T, a_s).squeeze()
+    return T
 
   def marginal_likelihood(self, X):
     marg_l = t.prod(t.stack(
