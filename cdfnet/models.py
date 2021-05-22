@@ -285,7 +285,7 @@ class CDFNet(nn.Module):
       ])
       a_s = self.nonneg(a_s)
       a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
-      a_s = a_s.unsqueeze(1)
+      a_s = a_s.unsqueeze(1).expand(-1, 2, -1, -1)
       a2_s = self.nonneg(a2_s)
       a2_s = a2_s / t.sum(a2_s, dim=1, keepdim=True)
       # pdb.set_trace()

@@ -11,7 +11,7 @@ def run_mi_estimation(d=10,
                       batch_size=1000,
                       M=10000,
                       n=50,
-                      n_reps=3):
+                      n_reps=3, save_model=True):
   Sigma = np.eye(d)
   for i in range(d):
     for j in range(d):
@@ -53,6 +53,14 @@ def run_mi_estimation(d=10,
     h.patience = 200
     loaders = utils.create_loaders([data, None, None], h.batch_size)
     model = fit.fit_neural_copula(h, loaders)
+    file_name = f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}'
+    if save_model:
+      model_file = file_name + '_checkpoint.pt'
+      print('Saving model to ' + model_file)
+      t.save(
+          {
+              'model': model.state_dict(),
+          }, model_file)
 
     print('Sampling')
     samples = model.sample(n_samples, batch_size=h.batch_size)
@@ -64,25 +72,25 @@ def run_mi_estimation(d=10,
     samples_dataloader = t.utils.data.DataLoader(samples,
                                                  batch_size=h.batch_size,
                                                  shuffle=False)
-    for batch_idx, batch in enumerate(samples_dataloader):
-      mi_ests = []
-      for i in ind_rng:
-        mi_ests += [
-            t.mean(
-                model.log_density(batch) -
-                model.log_density(batch[:, range(i)], inds=range(i)) -
-                model.log_density(batch[:, range(i, d)], inds=range(i, d))).
-            cpu().detach().numpy()
-        ]
-      all_mi_ests.append(mi_ests)
-    all_mi_ests_all_reps.append([mi_ests])
-    # saving
-    file_name = f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}'
-    print(f'Saving results to {file_name}')
-    np.save(
-        f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}',
-        all_mi_ests_all_reps)
-  all_mi_ests_all_reps = np.array(all_mi_ests_all_reps)
+    with t.no_grad():
+      for batch_idx, batch in enumerate(samples_dataloader):
+        mi_ests = []
+        for i in ind_rng:
+          mi_ests += [
+              t.mean(
+                  model.log_density(batch) -
+                  model.log_density(batch[:, range(i)], inds=range(i)) -
+                  model.log_density(batch[:, range(i, d)], inds=range(i, d))).
+              cpu().detach().numpy()
+          ]
+        all_mi_ests.append(mi_ests)
+      all_mi_ests_all_reps.append([mi_ests])
+      # saving
+      print(f'Saving results to {file_name}')
+      np.save(
+          f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}',
+          all_mi_ests_all_reps)
+    all_mi_ests_all_reps = np.array(all_mi_ests_all_reps)
 
   # # plotting
   # plt.figure()

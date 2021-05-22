@@ -82,7 +82,6 @@ def load_dataset(args):
       for block in np.array_split(missing_traindata, 100):
         knn_data = imputer.fit_transform(block)
         imputed += [knn_data]
-        print('.')
       all_imputed = np.concatenate(imputed)
       all_imputed = np.squeeze(all_imputed)
 
@@ -298,6 +297,13 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid,
         'Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f} -- test_loss: {:4.3f}'
         .format(epoch + 1, args.start_epoch + args.epochs, train_loss.item(),
                 validation_loss.item(), test_loss.item()))
+
+    with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
+      print(
+          'Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f} -- test_loss: {:4.3f}'
+          .format(epoch + 1, args.start_epoch + args.epochs, train_loss.item(),
+                  validation_loss.item(), test_loss.item()),
+          file=f)
 
     stop = scheduler.step(validation_loss,
                           callback_best=save_model(model, optimizer, epoch + 1,

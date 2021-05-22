@@ -1,32 +1,30 @@
 import numpy as np
-import h5py
+#import h5py
 
 
 class BSDS300:
-    """
+  """
     A dataset of patches from BSDS300.
     """
-
-    class Data:
-        """
+  class Data:
+    """
         Constructs the dataset.
         """
+    def __init__(self, data):
 
-        def __init__(self, data):
+      self.x = data[:]
+      self.N = self.x.shape[0]
 
-            self.x = data[:]
-            self.N = self.x.shape[0]
+  def __init__(self, file):
 
-    def __init__(self, file):
+    # load dataset
+    f = h5py.File(file, 'r')
 
-        # load dataset
-        f = h5py.File(file, 'r')
+    self.trn = self.Data(f['train'])
+    self.val = self.Data(f['validation'])
+    self.tst = self.Data(f['test'])
 
-        self.trn = self.Data(f['train'])
-        self.val = self.Data(f['validation'])
-        self.tst = self.Data(f['test'])
+    self.n_dims = self.trn.x.shape[1]
+    self.image_size = [int(np.sqrt(self.n_dims + 1))] * 2
 
-        self.n_dims = self.trn.x.shape[1]
-        self.image_size = [int(np.sqrt(self.n_dims + 1))] * 2
-
-        f.close()
+    f.close()
