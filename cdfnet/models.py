@@ -81,7 +81,9 @@ class CDFNet(nn.Module):
         ]
         if self.use_MERA:
           ## Start from random
-          # self.a_MERAs += [nn.Parameter(t.randn((dim_l, self.n, self.n)))]
+          # self.a_MERAs += [
+          #     nn.Parameter(a_scale * t.randn((dim_l, self.n, self.n)))
+          # ]
           ## Start from chi1=chi2=0.5
           # self.a_MERAs += [nn.Parameter(t.zeros((dim_l, self.n, self.n)))]
           ## Start from HT
@@ -290,12 +292,11 @@ class CDFNet(nn.Module):
       a_s = self.nonneg(a_s)
       a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
       a2_s = t.sigmoid(a2_s).unsqueeze(1)
-      a2_s = t.cat((a2_s, 1 - a2_s), dim=1)
+      a2_s = t.cat((a2_s, 1 - a2_s), dim=1) / self.n
       # pdb.set_trace()
       T = contract('jklm,jkpm,jpi->lji', T, a2_s, a_s)
       # T = t.einsum('jklm,jkpm,jpi->lji', T, a2_s, a_s)
 
-    # pdb.set_trace()
     T = t.prod(T[:, self.all_couplings[-1][0], :], dim=1)
     a_s = self.nonneg(self.a_HTs[-1])
     a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
