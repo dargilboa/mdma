@@ -277,7 +277,7 @@ class CDFNet(nn.Module):
 
     for a_s, a2_s, couplings in zip(self.a_HTs[:-1], self.a_MERAs,
                                     self.all_couplings):
-      import pdb
+      # import pdb
       # pdb.set_trace()
       T = t.stack([
           t.stack([
@@ -289,12 +289,11 @@ class CDFNet(nn.Module):
       ])
       a_s = self.nonneg(a_s)
       a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
-      # a_s = a_s.unsqueeze(1).expand(-1, 2, -1, -1)
       a2_s = t.sigmoid(a2_s).unsqueeze(1)
       a2_s = t.cat((a2_s, 1 - a2_s), dim=1)
       # pdb.set_trace()
-      T = contract('jklm,jkpm,jpm->ljm', T, a2_s, a_s)
-      # T = t.einsum('jklm,jkpm,jpm->ljm', T, a2_s, a_s)
+      T = contract('jklm,jkpm,jpi->lji', T, a2_s, a_s)
+      # T = t.einsum('jklm,jkpm,jpi->lji', T, a2_s, a_s)
 
     # pdb.set_trace()
     T = t.prod(T[:, self.all_couplings[-1][0], :], dim=1)
