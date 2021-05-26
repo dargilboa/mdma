@@ -2,7 +2,6 @@ import torch as t
 import torch.nn as nn
 import numpy as np
 from cdfnet import utils
-# from cdf import fastCDFOnSample
 from operator import itemgetter
 from numpy import concatenate
 from torch.nn import AvgPool1d, AvgPool2d
@@ -279,7 +278,7 @@ class CDFNet(nn.Module):
 
     for a_s, a2_s, couplings in zip(self.a_HTs[:-1], self.a_MERAs,
                                     self.all_couplings):
-      # import pdb
+      import pdb
       # pdb.set_trace()
       T = t.stack([
           t.stack([
@@ -292,9 +291,9 @@ class CDFNet(nn.Module):
       a_s = self.nonneg(a_s)
       a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
       a2_s = t.sigmoid(a2_s).unsqueeze(1)
-      a2_s = t.cat((a2_s, 1 - a2_s), dim=1) / self.n
+      a2_s = t.cat((a2_s, 1 - a2_s), dim=1)
       # pdb.set_trace()
-      T = contract('jklm,jkpm,jpi->lji', T, a2_s, a_s)
+      T = contract('jklm,jkmi,jmi->lji', T, a2_s, a_s)
       # T = t.einsum('jklm,jkpm,jpi->lji', T, a2_s, a_s)
 
     T = t.prod(T[:, self.all_couplings[-1][0], :], dim=1)
@@ -486,6 +485,7 @@ class CDFNet(nn.Module):
     self.all_couplings = all_couplings
 
   def cdf_regression_loss(self, X, inds=...):
+    from cdf import fastCDFOnSample
     y = np.ones([X.shape[0]])
     x = X[:, inds].detach().cpu().numpy().transpose()
     eps = np.random.random(size=x.shape) * 1e-13  # to break ties

@@ -6,4 +6,4 @@
 # python3 UCI_density_estimation.py --dataset "power" --lr .1 --m 10 --L 6 --n 500 --batch_size 2000 --patience 400 --n_epochs 2
 
 # python3 UCI_density_estimation.py --dataset "power" --lr .05 --m 5 --L 6 --n 3000 --batch_size 1000 --patience 1000 --n_epochs 2
-python3 UCI_density_estimation.py --dataset "power" --lr .1 --m 3 --L 2 --n 400 --batch_size 1000 --patience 2000 --n_epochs 1000 --use_MERA 1 --verbose 1 -sc 0
+python3 UCI_density_estimation.py --dataset "power" --lr .1 --m 3 --L 2 --n 400 --batch_size 1000 --patience 2000 --n_epochs 1000 --use_MERA 0 --verbose 1 -sc 0
