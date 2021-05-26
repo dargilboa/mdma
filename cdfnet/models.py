@@ -2,9 +2,7 @@ import torch as t
 import torch.nn as nn
 import numpy as np
 from cdfnet import utils
-# from cdf import fastCDFOnSample
 from operator import itemgetter
-# from opt_einsum import contract, contract_expression
 from numpy import concatenate
 from torch.nn import AvgPool1d, AvgPool2d
 
@@ -81,9 +79,14 @@ class CDFNet(nn.Module):
             nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 1, 1))
         ]
         if self.use_MERA:
-          self.a_MERAs += [
-              nn.Parameter(self.n * t.eye(self.n).repeat(dim_l, 2, 1, 1))
-          ]
+          ## Start from random
+          # self.a_MERAs += [
+          #     nn.Parameter(a_scale * t.randn((dim_l, self.n, self.n)))
+          # ]
+          ## Start from chi1=chi2=0.5
+          # self.a_MERAs += [nn.Parameter(t.zeros((dim_l, self.n, self.n)))]
+          ## Start from HT
+          self.a_MERAs += [nn.Parameter(5 * t.ones((dim_l, self.n, self.n)))]
 
       self.a_HTs += [nn.Parameter(a_scale * t.randn(1, self.n, 1))]
 
@@ -94,8 +97,6 @@ class CDFNet(nn.Module):
 
       # create couplings
       self.all_couplings = self.create_default_couplings()
-      if self.use_MERA:
-        self.mera_couplings = self.create_mera_couplings()
 
     # add parameters for mixing variables
     self.mix_vars = mix_vars
@@ -254,8 +255,6 @@ class CDFNet(nn.Module):
       T = T_full
 
     for a_s, couplings in zip(self.a_HTs, self.all_couplings):
-      # import pdb
-      # pdb.set_trace()
       T = [t.prod(T[:, coupling, :], dim=1) for coupling in couplings]
       # normalize sum of a_s across second dimension
       a_s = self.nonneg(a_s)
@@ -269,6 +268,8 @@ class CDFNet(nn.Module):
     # tensor of parameters to obtain a scalar
     # returns a B dimensional tensor
 
+    from opt_einsum import contract
+
     # add ones for marginalized variables (can be avoided to speed up and save memory)
     if inds is not ...:
       T_full = t.ones((T.shape[0], self.d, self.n))
@@ -276,28 +277,27 @@ class CDFNet(nn.Module):
       T = T_full
 
     for a_s, a2_s, couplings in zip(self.a_HTs[:-1], self.a_MERAs,
-                                    self.mera_couplings):
-      # import pdb
+                                    self.all_couplings):
       T = t.stack([
-          t.stack((t.prod(T[:, coupling[0], :],
-                          dim=1), t.prod(T[:, coupling[1], :], dim=1)))
+          t.stack([
+              t.prod(T[:, coupling, :], dim=1), T[:, coupling[0], :] *
+              t.roll(T[:, coupling[1], :], shifts=1, dims=1)
+          ]) if len(coupling) == 2 else
+          T[:, coupling, :].squeeze().unsqueeze(0).expand(2, -1, -1)
           for coupling in couplings
       ])
       a_s = self.nonneg(a_s)
       a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
-      a_s = a_s.unsqueeze(1).expand(-1, 2, -1, -1)
-      a2_s = self.nonneg(a2_s)
-      a2_s = a2_s / t.sum(a2_s, dim=1, keepdim=True)
-      # pdb.set_trace()
-      T = t.sum(t.einsum('ijlk,ijkm,ijkm->lijm', T, a_s, a2_s), dim=2)
+      a2_s = t.sigmoid(a2_s).unsqueeze(1)
+      a2_s = t.cat((a2_s, 1 - a2_s), dim=1)
+      T = contract('jklm,jkmi,jmi->lji', T, a2_s, a_s)
+      # T = t.einsum('jklm,jkpm,jpi->lji', T, a2_s, a_s)
 
-    T = [
-        t.prod(T[:, coupling, :], dim=1) for coupling in self.all_couplings[-1]
-    ]
+    T = t.prod(T[:, self.all_couplings[-1][0], :], dim=1)
     a_s = self.nonneg(self.a_HTs[-1])
     a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
-    T = t.stack([t.matmul(phid, a) for phid, a in zip(T, a_s)], dim=1)
-    return t.squeeze(T)
+    T = t.matmul(T, a_s).squeeze()
+    return T
 
   def marginal_likelihood(self, X):
     marg_l = t.prod(t.stack(
@@ -411,17 +411,6 @@ class CDFNet(nn.Module):
     numerator = self.contract(phidots, inds=joint_inds)
     return numerator / denom
 
-  def create_mera_couplings(self):
-    # create default coupling of variables used in the mera decomposition
-    all_couplings = []
-    for couplings in self.all_couplings[:-1]:
-      couplings2 = couplings.copy()
-      couplings2.append(couplings2[0])
-      couplings2 = [[couplings2[i], [couplings2[i][-1], couplings2[i + 1][0]]]
-                    for i in range(len(couplings))]
-      all_couplings.append(couplings2)
-    return all_couplings
-
   def create_default_couplings(self):
     # create default coupling of variables used in the HT decomposition
     all_couplings = []
@@ -491,10 +480,9 @@ class CDFNet(nn.Module):
         all_couplings.append(couplings)
 
     self.all_couplings = all_couplings
-    if self.use_MERA:
-      self.mera_couplings = self.create_mera_couplings()
 
   def cdf_regression_loss(self, X, inds=...):
+    from cdf import fastCDFOnSample
     y = np.ones([X.shape[0]])
     x = X[:, inds].detach().cpu().numpy().transpose()
     eps = np.random.random(size=x.shape) * 1e-13  # to break ties
