@@ -62,18 +62,20 @@ def run_mi_estimation(d=10,
               'model': model.state_dict(),
           }, model_file)
 
-    print('Sampling')
-    samples = model.sample(n_samples, batch_size=h.batch_size)
-    samples = t.Tensor(samples)
+    # print('Sampling')
+    # samples = model.sample(n_samples, batch_size=h.batch_size)
+    # samples = t.Tensor(samples)
 
     #prof.display()
     print('Computing mutual information')
     all_mi_ests = []
-    samples_dataloader = t.utils.data.DataLoader(samples,
-                                                 batch_size=h.batch_size,
-                                                 shuffle=False)
+    samples_dataloader = loaders[0]
+    # samples_dataloader = t.utils.data.DataLoader(samples,
+    #                                              batch_size=h.batch_size,
+    #                                              shuffle=False)
     with t.no_grad():
       for batch_idx, batch in enumerate(samples_dataloader):
+        batch = batch[0][:,0,:]
         mi_ests = []
         for i in ind_rng:
           mi_ests += [
@@ -85,11 +87,15 @@ def run_mi_estimation(d=10,
           ]
         all_mi_ests.append(mi_ests)
       all_mi_ests_all_reps.append([mi_ests])
+      print('Truth:')
+      print(mis)
+      print('Est:')
+      print(mi_ests)
       # saving
       print(f'Saving results to {file_name}')
       np.save(
           f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}',
-          all_mi_ests_all_reps)
+          [mis, all_mi_ests_all_reps])
     all_mi_ests_all_reps = np.array(all_mi_ests_all_reps)
 
   # # plotting
@@ -116,6 +122,6 @@ def run_mi_estimation(d=10,
 if __name__ == '__main__':
   #run_mi_estimation()
   all_mi_ests_all_reps, mis = run_mi_estimation(d=20, batch_size=500, n=1000, M=1000000,
-                                                n_samples=100000, n_reps=5, save_model=False)
+                                                n_samples=99, n_reps=5, save_model=True)
   print(mis)
   print(all_mi_ests_all_reps)
