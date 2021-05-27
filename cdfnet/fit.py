@@ -26,11 +26,7 @@ def get_default_h(parent=None):
     h_parser = argparse.ArgumentParser()
   # data
   h_parser.add_argument('--d', type=int, default=2)
-  h_parser.add_argument(
-      '--dataset',
-      type=str,
-      default='',
-      choices=['', 'gas', 'bsds300', 'hepmass', 'miniboone', 'power'])
+  h_parser.add_argument('--dataset', type=str, default='')
   h_parser.add_argument('--missing_data_pct', type=float, default=0.0)
 
   # architecture
