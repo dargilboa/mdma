@@ -1,0 +1,7 @@
+library(rvinecopulib)
+source("experiments/ci_test/partial-copula-CI-test/dgp.R")
+fn <- hard_proc_0()
+trn <- do.call(cbind, fn(20000, 3))
+val <- do.call(cbind, fn(20000, 3))
+fit <- vine(trn, copula_controls = list(family_set = "tll"))
+mean(-log(dvine(val, fit)))
