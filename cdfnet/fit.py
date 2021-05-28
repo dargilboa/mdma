@@ -26,6 +26,7 @@ def get_default_h(parent=None):
     h_parser = argparse.ArgumentParser()
   # data
   h_parser.add_argument('--d', type=int, default=2)
+  h_parser.add_argument('--M', type=int, default=1000)
   h_parser.add_argument('--dataset', type=str, default='')
   h_parser.add_argument('--missing_data_pct', type=float, default=0.0)
 
@@ -62,6 +63,13 @@ def get_default_h(parent=None):
   h_parser.add_argument('--gaussian_noise', type=float, default=0)
   h_parser.add_argument('--subsample_inds', type=utils.str2bool, default=False)
   h_parser.add_argument('--n_inds_to_subsample', type=int, default=20)
+  h_parser.add_argument('--cdf_regularization',
+                        type=utils.str2bool,
+                        default=False)
+  h_parser.add_argument('--hessian_regularization',
+                        type=utils.str2bool,
+                        default=False)
+
   # logging
   h_parser.add_argument('--data_dir', type=str, default='data/data')
   h_parser.add_argument('--use_tb', type=utils.str2bool, default=False)
@@ -167,12 +175,10 @@ def fit_neural_copula(
                       missing_data_mask=missing_data_mask)
       nll_value = obj.item()
 
-      cdf_regularization = False
-      if cdf_regularization == True:
+      if h.cdf_regularization == True:
         obj = obj + model.cdf_regression_loss(batch_data[:, inds], inds=inds)
 
-      hessian_regularization = False
-      if hessian_regularization == True:
+      if h.hessian_regularization == True:
         obj = obj + hessian_penalty_pytorch.hessian_penalty(
             model.nll, batch_data)
 

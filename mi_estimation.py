@@ -96,7 +96,7 @@ def run_mi_estimation(d=10,
       np.save(
           f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}',
           [mis, all_mi_ests_all_reps])
-    all_mi_ests_all_reps = np.array(all_mi_ests_all_reps)
+  all_mi_ests_all_reps = np.array(all_mi_ests_all_reps)
 
   # # plotting
   # plt.figure()

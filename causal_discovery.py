@@ -1,7 +1,7 @@
 from cdfnet import fit
 from experiments.causal_discovery.pcalg import estimate_skeleton, estimate_cpdag
 from cdfnet import utils
-from cdt.data import load_dataset
+from cdt.data import load_dataset, AcyclicGraphGenerator
 from cdt.metrics import SHD, SID
 import torch as t
 import numpy as np
@@ -33,8 +33,7 @@ else:
   device = "cpu"
 
 
-def plot_dag(graph_truth=nx.read_gpickle('data/graph_truth.gpickle'),
-             graph_mdma=nx.read_gpickle('data/graph_mdma.gpickle')):
+def plot_dag(graph_truth, graph_mdma):
   graph_pc = nx.read_graphml('data/graph_pc.txt')
   graph_pc_nodes = open('data/graph_pc_nodes.txt').read().splitlines()
   graph_pc = nx.relabel_nodes(graph_pc,
@@ -81,7 +80,9 @@ def plot_dag(graph_truth=nx.read_gpickle('data/graph_truth.gpickle'),
       SHD(graph_truth, graph_mdma),
       SHD(graph_truth, graph_pc),
       SHD(graph_truth, graph_mdma, False),
-      SHD(graph_truth, graph_pc, False)
+      SHD(graph_truth, graph_pc, False),
+      SID(graph_truth, graph_mdma),
+      SID(graph_truth, graph_pc)
   ]
   return res
 
@@ -99,21 +100,27 @@ def causal_discovery():
   if h.dataset == 'sachs':
     data_pd, graph_truth = load_dataset('sachs')
     data_np = np.array(data_pd)
-    data = utils.create_loaders([data_np, None, None], h.batch_size)
+    h.d = data_np.shape[1]
+    h.M = data_np.shape[0]
+  elif h.dataset == 'random_dag':
+    print('Generating random DAG')
+    generator = AcyclicGraphGenerator(causal_mechanism='gp_add',
+                                      npoints=h.M,
+                                      nodes=h.d)
+    data_pd, graph_truth = generator.generate()
+    data_np = np.array(data_pd)
   else:
     raise RuntimeError()
 
   # Gaussian PC
   print('Gaussian PC')
   pc_fit(data_pd)
-
-  h.d = data_np.shape[1]
-  h.M = data_np.shape[0]
   h.eval_validation = False
   h.eval_test = False
 
   # Fit MDMA
   print('Fitting MDMA')
+  data = utils.create_loaders([data_np, None, None], h.batch_size)
   model = fit.fit_neural_copula(h, data)
 
   # MDMA PC
