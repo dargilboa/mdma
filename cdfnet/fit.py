@@ -1,6 +1,13 @@
 import torch as t
 import torch.optim as optim
-from cdfnet import models
+
+#from cdfnet import models
+
+from cdfnet import models_random as models
+
+
+
+
 from cdfnet import utils
 from cdfnet import hessian_penalty_pytorch
 import argparse
@@ -39,7 +46,11 @@ def get_default_h(parent=None):
   h_parser.add_argument('--HT_poolsize', type=int, default=2)
   h_parser.add_argument('--adaptive_coupling',
                         type=utils.str2bool,
+                        default=False)
+  h_parser.add_argument('--random_coupling',
+                        type=utils.str2bool,
                         default=True)
+
   h_parser.add_argument('--mix_vars', type=utils.str2bool, default=False)
   h_parser.add_argument('--n_mix_terms', type=int, default=1)
 
@@ -285,7 +296,8 @@ def initialize(h):
       a_std=h.a_std,
       use_HT=h.use_HT,
       use_MERA=h.use_MERA,
-      adaptive_coupling=h.adaptive_coupling,
+      adaptive_coupling = h.adaptive_coupling,
+      random_coupling = h.random_coupling,
       HT_poolsize=h.HT_poolsize,
       mix_vars=h.mix_vars,
       n_mix_terms=h.n_mix_terms,
