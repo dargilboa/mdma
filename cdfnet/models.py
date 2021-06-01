@@ -22,6 +22,7 @@ class CDFNet(nn.Module):
       use_HT=False,
       use_MERA=False,
       adaptive_coupling=False,
+      random_coupling=True,
       mix_vars=False,
       n_mix_terms=1,
   ):
@@ -41,6 +42,14 @@ class CDFNet(nn.Module):
     self.use_HT = use_HT
     self.use_MERA = use_MERA
     self.adaptive_coupling = adaptive_coupling
+    self.random_coupling = random_coupling
+
+
+    if random_coupling:
+      self.ii = t.zeros([1,self.d,self.n,1], dtype = t.long)
+      for i in range(self.n):
+        self.ii[0,:,i,0] = t.randperm(self.d)
+
 
     # initialize parameters for marginal CDFs
     assert self.L >= 2
@@ -200,6 +209,11 @@ class CDFNet(nn.Module):
       X = X.unsqueeze(-1)
     X = X.unsqueeze(-1).unsqueeze(-1)
     Xn = X.expand(-1, -1, self.n, 1)  # B x d x n x 1
+  
+    if self.random_coupling:
+      ii = self.ii.expand([Xn.shape[0],*self.ii.shape[1:]]) 
+      Xn = t.gather(Xn, 1, ii)
+
     return Xn
 
   def CDF(self, X, inds=...):
