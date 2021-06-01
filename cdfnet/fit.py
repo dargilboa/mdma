@@ -1,9 +1,8 @@
 import torch as t
 import torch.optim as optim
 
-#from cdfnet import models
+from cdfnet import models
 
-from cdfnet import models_random as models
 
 
 
