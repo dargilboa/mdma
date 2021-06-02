@@ -1,5 +1,4 @@
 import torch as t
-import numpy as np
 
 import rpy2.robjects as robjects
 from rpy2.robjects import numpy2ri
