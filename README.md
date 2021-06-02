@@ -47,7 +47,7 @@ Run toy density estimation:
 python3 experiments/toy_density_estimation.py
 ```
 
-![Data](experiments/images/s1.pdf)
+![Data](./experiments/images/s1.pdf)
 
 #### Density estimation with missing values
 
