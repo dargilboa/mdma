@@ -271,7 +271,6 @@ def initialize(h):
       use_HT=h.use_HT,
       use_MERA=h.use_MERA,
       adaptive_coupling=h.adaptive_coupling,
-      random_coupling=h.random_coupling,
       HT_poolsize=h.HT_poolsize,
       mix_vars=h.mix_vars,
       n_mix_terms=h.n_mix_terms,
