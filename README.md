@@ -20,7 +20,7 @@ Below, example commands are given for running experiments.
 #### Download datasets
 Run the following command to download the UCI datasets:
 ```
-./experiments/download_datasets.sh
+bash download_datasets.sh
 ```
 
 #### Toy 3D density estimation
@@ -30,15 +30,15 @@ Density estimation on a toy dataset of two spirals, showing the ability of MDMA 
 Fit two spirals density using MDMA, and plot marginals and conditionals:
 
 ```
-python3 experiments/toy_density_estimation.py
+python3 toy_density_estimation.py
 ```
 
 For a two spiral dataset, the samples and marginal histograms of the data take the following form:
-![Data](experiments/media/s1.jpg)
+![Data](media/s1.jpg)
 Samples from the trained MDMA model and the learned marginal densities evaluated on a grid are indistinguishable:
-![Samples and marginals](experiments/media/s2.jpg)
+![Samples and marginals](media/s2.jpg)
 MDMA also provides closed-form expression for all conditional densities:
-![Conditionals](experiments/media/s4.jpg?s=100)
+![Conditionals](media/s4.jpg?s=100)
 
 #### UCI density estimation
 
@@ -47,28 +47,28 @@ Density estimation on UCI dataset. Possible values for dataset are power, gas, h
 Fit UCI POWER dataset using MDMA:
 
 ```
-python3 experiments/UCI_density_estimation.py --dataset power \
-                                              --m 1000 \           # Width of tensor network
-                                              --r 3 \              # Width of univariate CDF networks
-                                              --l 2 \              # Depth of univariate CDF networks
-                                              --batch_size 500 \
-                                              --n_epochs 1000 \
-                                              --lr 0.01 
+python3 UCI_density_estimation.py --dataset power \
+                                  --m 1000 \           # Width of tensor network
+                                  --r 3 \              # Width of univariate CDF networks
+                                  --l 2 \              # Depth of univariate CDF networks
+                                  --batch_size 500 \
+                                  --n_epochs 1000 \
+                                  --lr 0.01 
 ```
 
 
 Fit UCI POWER dataset using the non-marginalizable variant nMDMA:
 
 ```
-python3 experiments/UCI_density_estimation.py --dataset power \
-                                              --m 1000 \           # Width of tensor network
-                                              --r 3 \              # Width of univariate CDF networks
-                                              --l 2 \              # Depth of univariate CDF networks
-                                              --batch_size 500 \
-                                              --n_epochs 1000 \
-                                              --lr 0.01 \
-                                              --mix_vars 1 \       # Use nMDMA
-                                              --n_mix_terms 5\     # Number of diagonals in the mixing matrix T
+python3 UCI_density_estimation.py --dataset power \
+                                  --m 1000 \           # Width of tensor network
+                                  --r 3 \              # Width of univariate CDF networks
+                                  --l 2 \              # Depth of univariate CDF networks
+                                  --batch_size 500 \
+                                  --n_epochs 1000 \
+                                  --lr 0.01 \
+                                  --mix_vars 1 \       # Use nMDMA
+                                  --n_mix_terms 5\     # Number of diagonals in the mixing matrix T
 ```
 
 #### Density estimation with missing values
@@ -76,23 +76,25 @@ python3 experiments/UCI_density_estimation.py --dataset power \
 Fit UCI POWER dataset with 0.5 probability of missing values per entry using MDMA:
 
 ```
-python3 experiments/UCI_density_estimation.py --dataset gas \
-                                              --m 4000 \
-                                              --r 5 \
-                                              --l 4 \
-                                              --batch_size 500 \
-                                              --n_epochs 1000 \
-                                              --lr 0.01 \
-                                              --missing_data_pct 0.5 # proportion of missing values
+python3 UCI_density_estimation.py --dataset gas \
+                                  --m 4000 \
+                                  --r 5 \
+                                  --l 4 \
+                                  --batch_size 500 \
+                                  --n_epochs 1000 \
+                                  --lr 0.01 \
+                                  --missing_data_pct 0.5 # proportion of missing values
 ```
 
 Density estimation using BNAF on the same dataset after performing MICE imputation:
+Requires
+* **``miceforest>=2.0.4``** 
 
 ```
-python3 experiments/BNAF/density_estimation.py --dataset gas \
-                                               --hidden_dim 320 \
-                                               --missing_data_pct 0.5 \
-                                               --missing_data_strategy mice
+python3 BNAF_density_estimation.py --dataset gas \
+                                   --hidden_dim 320 \
+                                   --missing_data_pct 0.5 \
+                                   --missing_data_strategy mice
 ```
 
 #### Mutual information estimation
@@ -100,7 +102,7 @@ python3 experiments/BNAF/density_estimation.py --dataset gas \
 Generate data from a multivariate gaussian, fit the joint density using MDMA and estimate the mutual information between subsets of variables:
 
 ```
-python3 experiments/MI_estimation.py
+python3 MI_estimation.py
 ```
 
 #### Causal discovery 
@@ -115,15 +117,15 @@ as well as the python packages
 Run the causal discovery experiment, recovering a causal graph from data by testing for conditional independence using MDMA:
 
 ```
-python3 experiments/causal_discovery/causal_discovery.py --dataset "sachs" \
-                                                         --lr .1 \
-                                                         --r 3 \
-                                                         --l 2 \
-                                                         --m 1000 \
-                                                         --batch_size 500 \
-                                                         --patience 100 \
-                                                         --n_epochs 50 \
-                                                         --verbose 1 \
-                                                         --save_checkpoints 0
+python3 causal_discovery.py --dataset "sachs" \
+                            --lr .1 \
+                            --r 3 \
+                            --l 2 \
+                            --m 1000 \
+                            --batch_size 500 \
+                            --patience 100 \
+                            --n_epochs 50 \
+                            --verbose 1 \
+                            --save_checkpoints 0
 
 ```

@@ -4,18 +4,16 @@ import argparse
 import pprint
 import numpy as np
 import datetime
-import torch
 from torch.utils import data
-from bnaf import *
+from experiments.BNAF.bnaf import *
 from tqdm import tqdm
-from optim.adam import Adam
-from optim.lr_scheduler import ReduceLROnPlateau
+from experiments.BNAF.optim.adam import Adam
+from experiments.BNAF.optim.lr_scheduler import ReduceLROnPlateau
 
-from data.gas import GAS
-#from data.bsds300 import BSDS300
-from data.hepmass import HEPMASS
-from data.miniboone import MINIBOONE
-from data.power import POWER
+from experiments.BNAF.data.gas import GAS
+from experiments.BNAF.data.hepmass import HEPMASS
+from experiments.BNAF.data.miniboone import MINIBOONE
+from experiments.BNAF.data.power import POWER
 from sklearn.impute import KNNImputer
 import pandas as pd
 
@@ -31,8 +29,6 @@ NAF_PARAMS = {
 def load_dataset(args):
   if args.dataset == 'gas':
     dataset = GAS('/data/data/gas/ethylene_CO.pickle')
-  elif args.dataset == 'bsds300':
-    dataset = BSDS300('/data/data/BSDS300/BSDS300.hdf5')
   elif args.dataset == 'hepmass':
     dataset = HEPMASS('/data/data/hepmass')
   elif args.dataset == 'miniboone':

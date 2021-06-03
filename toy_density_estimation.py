@@ -7,7 +7,7 @@ import MDMA.utils as utils
 save_plots = True
 dataset_name = 'checkerboard'
 M = 200000
-save_dir = "./"
+save_dir = "experiments/"
 
 
 def eval_log_density_on_grid(model,
