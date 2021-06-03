@@ -40,6 +40,22 @@ Samples from the trained MDMA model and the learned marginal densities evaluated
 MDMA also provides closed-form expression for all conditional densities:
 ![Conditionals](experiments/images/s4.jpg?s=100)
 
+#### UCI density estimation
+
+Density estimation on UCI dataset. Possible values for dataset are power, gas, hepmass, miniboone.
+
+Runs MDMA on the UCI POWER dataset:
+
+```
+python3 experiments/UCI_density_estimation.py --dataset power \
+                                              --m 1000 \           # Width of tensor network
+                                              --r 3 \              # Width of univariate CDF networks
+                                              --l 2 \              # Depth of univariate CDF networks
+                                              --batch_size 500 \
+                                              --n_epochs 1000 \
+                                              --lr 0.01 
+```
+
 #### Density estimation with missing values
 
 Fit UCI POWER dataset using MDMA:
@@ -95,20 +111,4 @@ python3 experiments/causal_discovery/causal_discovery.py --dataset "sachs" \
                                                          --verbose 1 \
                                                          --save_checkpoints 0
 
-```
-
-#### UCI density estimation
-
-Density estimation on UCI dataset. Possible values for dataset are power, gas, hepmass, miniboone.
-
-Runs MDMA on the UCI POWER dataset:
-
-```
-python3 experiments/UCI_density_estimation.py --dataset power \
-                                              --m 1000 \
-                                              --r 3 \
-                                              --l 2 \
-                                              --batch_size 500 \
-                                              --n_epochs 1000 \
-                                              --lr 0.01 
 ```
