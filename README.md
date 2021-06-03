@@ -1,5 +1,5 @@
 # MDMA
-Pytorch implementation of the Marginalizable Density Model Approximator
+Pytorch implementation of the Marginalizable Density Model Approximator — A density estimator that provides closed-form marginal and conditional densities. 
 
 ## Requirements
 * **``python>=3.6``** 
@@ -23,35 +23,26 @@ Run the following command to download the UCI datasets:
 ./experiments/download_datasets.sh
 ```
 
-#### Run 2D toy density estimation
-This example runs density estimation on the `8 Gaussians` dataset using 1 flow of BNAF with 2 layers and 100 hidden units (`50 * 2` since the data dimensionality is 2).
-```
-python toy2d.py --dataset 8gaussians \    # which dataset to use
-                --experiment density2d \  # which experiment to run
-                --flows 1 \               # BNAF flows to concatenate
-                --layers 2 \              # layers for each flow of BNAF
-                --hidden_dim 50 \         # hidden units per dimension for each hidden layer
-                --save                    # save the model after training
-                --savefig                 # save the density plot on disk
-```
-
-![Imgur](https://i.imgur.com/DWVGsyn.jpg)
-
 #### Toy 3D density estimation
 
 Density estimation on a toy dataset of two spirals, showing the ability of MDMA to compute marginal and conditional distributions.
 
-Run toy density estimation:
+Fit two spirals density using MDMA, and plot marginals and conditionals:
 
 ```
 python3 experiments/toy_density_estimation.py
 ```
 
-![Data](./experiments/images/s1.pdf)
+For a two spiral dataset, the samples and marginal histograms of the data take the following form:
+![Data](experiments/images/s1.jpg)
+Samples from the trained MDMA model and the learned marginal densities evaluated on a grid are indistinguishable:
+![Samples and marginals](experiments/images/s2.jpg)
+MDMA also provides closed-form expression for all conditional densities:
+![Conditionals](experiments/images/s4.jpg?s=100)
 
 #### Density estimation with missing values
 
-Runs MDMA on the UCI POWER dataset:
+Fit UCI POWER dataset using MDMA:
 
 ```
 python3 experiments/UCI_density_estimation.py --dataset gas \
@@ -64,7 +55,7 @@ python3 experiments/UCI_density_estimation.py --dataset gas \
                                               --missing_data_pct 0.5 # proportion of missing values
 ```
 
-Runs estimation with BNAF on the same dataset with MICE imputation:
+Density estimation using BNAF on the same dataset after performing MICE imputation:
 
 ```
 python3 experiments/BNAF/density_estimation.py --dataset gas \
@@ -75,17 +66,22 @@ python3 experiments/BNAF/density_estimation.py --dataset gas \
 
 #### Mutual information estimation
 
+Generate data from a multivariate gaussian, fit the joint density using MDMA and estimate the mutual information between subsets of variables:
+
+```
+python3 experiments/MI_estimation.py
+```
 
 #### Causal discovery 
 Requires 
-* **``R>=0.5.23``** 
+* **``R>=4.0.5``** 
 
 as well as the python packages
 * **``cdt>=0.5.23``** 
 * **``rpy2>=3.4.4``** 
 * **``pytorch>=1.0.0``**
 
-Runs the causal discovery experiment, recovering a causal graph from data by testing for conditional independence using MDMA:
+Run the causal discovery experiment, recovering a causal graph from data by testing for conditional independence using MDMA:
 
 ```
 python3 experiments/causal_discovery/causal_discovery.py --dataset "sachs" \
@@ -116,6 +112,3 @@ python3 experiments/UCI_density_estimation.py --dataset power \
                                               --n_epochs 1000 \
                                               --lr 0.01 
 ```
-
-For other datasets, we found the best performance with the following values of the parameters:
-

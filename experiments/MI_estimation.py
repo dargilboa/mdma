@@ -107,13 +107,13 @@ def run_mi_estimation(d=10,
 
 
 if __name__ == '__main__':
-  #run_mi_estimation()
-  all_mi_ests_all_reps, mis = run_mi_estimation(d=20,
+  all_mi_ests_all_reps, mis = run_mi_estimation(d=16,
                                                 batch_size=500,
-                                                n=1000,
+                                                m=1000,
                                                 M=1000000,
                                                 n_samples=99,
                                                 n_reps=5,
-                                                save_model=True)
+                                                save_model=True,
+                                                plot=True)
   print(mis)
   print(all_mi_ests_all_reps)
