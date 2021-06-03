@@ -34,17 +34,17 @@ python3 experiments/toy_density_estimation.py
 ```
 
 For a two spiral dataset, the samples and marginal histograms of the data take the following form:
-![Data](experiments/images/s1.jpg)
+![Data](experiments/media/s1.jpg)
 Samples from the trained MDMA model and the learned marginal densities evaluated on a grid are indistinguishable:
-![Samples and marginals](experiments/images/s2.jpg)
+![Samples and marginals](experiments/media/s2.jpg)
 MDMA also provides closed-form expression for all conditional densities:
-![Conditionals](experiments/images/s4.jpg?s=100)
+![Conditionals](experiments/media/s4.jpg?s=100)
 
 #### UCI density estimation
 
 Density estimation on UCI dataset. Possible values for dataset are power, gas, hepmass, miniboone.
 
-Runs MDMA on the UCI POWER dataset:
+Fit UCI POWER dataset using MDMA:
 
 ```
 python3 experiments/UCI_density_estimation.py --dataset power \
@@ -56,9 +56,24 @@ python3 experiments/UCI_density_estimation.py --dataset power \
                                               --lr 0.01 
 ```
 
+
+Fit UCI POWER dataset using the non-marginalizable variant nMDMA:
+
+```
+python3 experiments/UCI_density_estimation.py --dataset power \
+                                              --m 1000 \           # Width of tensor network
+                                              --r 3 \              # Width of univariate CDF networks
+                                              --l 2 \              # Depth of univariate CDF networks
+                                              --batch_size 500 \
+                                              --n_epochs 1000 \
+                                              --lr 0.01 \
+                                              --mix_vars 1 \       # Use nMDMA
+                                              --n_mix_terms 5\     # Number of diagonals in the mixing matrix T
+```
+
 #### Density estimation with missing values
 
-Fit UCI POWER dataset using MDMA:
+Fit UCI POWER dataset with 0.5 probability of missing values per entry using MDMA:
 
 ```
 python3 experiments/UCI_density_estimation.py --dataset gas \

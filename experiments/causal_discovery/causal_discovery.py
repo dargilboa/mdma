@@ -117,7 +117,7 @@ def causal_discovery(plot_graphs=True):
   h.eval_validation = False
   h.eval_test = False
   data = utils.create_loaders([data_np, None, None], h.batch_size)
-  model = fit.fit_neural_copula(h, data)
+  model = fit.fit_MDMA(h, data)
 
   # MDMA PC
   print('MDMA PC')

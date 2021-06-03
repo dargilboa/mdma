@@ -8,14 +8,11 @@ from experiments.BNAF.data.hepmass import HEPMASS
 from experiments.BNAF.data.miniboone import MINIBOONE
 from experiments.BNAF.data.power import POWER
 
-# np.random.seed(0)
-# t.manual_seed(0)
-
 
 def fit_UCI():
   h = fit.get_default_h()
   data = load_dataset(h)
-  outs = fit.fit_neural_copula(h, data)
+  outs = fit.fit_MDMA(h, data)
 
 
 def load_dataset(h):

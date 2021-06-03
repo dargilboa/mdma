@@ -1,4 +1,3 @@
-#%%
 import numpy as np
 import matplotlib.pyplot as plt
 import MDMA.fit as fit
@@ -20,11 +19,6 @@ def run_mi_estimation(d=10,
       if i != j:
         Sigma[i, j] = (i + j) / (5 * d)
 
-  # plt.imshow(Sigma)
-  # plt.colorbar()
-  # plt.show()
-  print(np.linalg.det(Sigma))
-
   ind_rng = range(1, d)
   mis = []
   for i in ind_rng:
@@ -32,7 +26,6 @@ def run_mi_estimation(d=10,
         np.linalg.det(Sigma[:i, :i]) * np.linalg.det(Sigma[i:, i:]) /
         np.linalg.det(Sigma))]
 
-  #%%
   all_mi_ests_all_reps = []
   for _ in range(n_reps):
     A = np.linalg.cholesky(Sigma)
@@ -50,11 +43,11 @@ def run_mi_estimation(d=10,
     h.l = 4
     h.n_epochs = 2
     h.model_to_load = ''
-    h.save_path = '..'
+    h.save_path = '.'
     h.M = M
     h.patience = 200
     loaders = utils.create_loaders([data, None, None], h.batch_size)
-    model = fit.fit_neural_copula(h, loaders)
+    model = fit.fit_MDMA(h, loaders)
     file_name = f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}'
     if save_model:
       model_file = file_name + '_checkpoint.pt'
@@ -80,10 +73,7 @@ def run_mi_estimation(d=10,
           ]
         all_mi_ests.append(mi_ests)
       all_mi_ests_all_reps.append([mi_ests])
-      print('Truth:')
-      print(mis)
-      print('Est:')
-      print(mi_ests)
+
       # saving
       print(f'Saving results to {file_name}')
       np.save(
@@ -115,5 +105,7 @@ if __name__ == '__main__':
                                                 n_reps=5,
                                                 save_model=True,
                                                 plot=True)
+  print('Ground truth:')
   print(mis)
+  print('MDMA estimates:')
   print(all_mi_ests_all_reps)

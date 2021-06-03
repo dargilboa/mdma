@@ -7,6 +7,7 @@ import MDMA.utils as utils
 save_plots = True
 dataset_name = 'checkerboard'
 M = 200000
+save_dir = "./"
 
 
 def eval_log_density_on_grid(model,
@@ -133,6 +134,9 @@ ax.xaxis.set_ticklabels([])
 ax.yaxis.set_ticklabels([])
 ax.zaxis.set_ticklabels([])
 plt.locator_params(nbins=3)
+if save_plots:
+  plt.savefig(save_dir + '_'.join(['3d', dataset_name, 'data']) + '.pdf')
+plt.show()
 
 # plot data 2d hist
 ub = 4
@@ -155,6 +159,11 @@ for vars in [[0, 1], [1, 2], [0, 2]]:
   plt.xticks([])
   plt.yticks([])
   plt.title('Training data')
+  if save_plots:
+    plt.savefig(save_dir + '_'.join(
+        ['3d', dataset_name, 'data_2d',
+         str(vars[0] + 1),
+         str(vars[1] + 1)]) + '.pdf')
   plt.show()
 
 # create model and fit
@@ -175,7 +184,7 @@ h.save_checkpoints = False
 loaders = utils.create_loaders([dataset, None, None], batch_size)
 h.eval_validation = False
 h.eval_test = False
-model = fit.fit_neural_copula(h, loaders)
+model = fit.fit_MDMA(h, loaders)
 
 # plot samples from model
 plt.figure()
@@ -205,6 +214,10 @@ ax.xaxis.set_ticklabels([])
 ax.yaxis.set_ticklabels([])
 ax.zaxis.set_ticklabels([])
 plt.locator_params(nbins=3)
+if save_plots:
+  plt.savefig(save_dir + '_'.join(['3d', dataset_name, 'model_samples_3d']) +
+              '.pdf')
+plt.show()
 
 # 2d marginals
 lims = [[lb, ub], [lb, ub], zlim]
@@ -229,6 +242,11 @@ for vars in [[0, 1], [1, 2], [0, 2]]:
   plt.xticks([])
   plt.yticks([])
   plt.title(f'$f(x_{vars[0] + 1}, x_{vars[1] + 1})$', fontsize=22)
+  if save_plots:
+    plt.savefig(save_dir + '_'.join(
+        ['3d', dataset_name, '2d_marg',
+         str(vars[0] + 1),
+         str(vars[1] + 1)]) + '.pdf')
   plt.show()
 
 # 2d conditionals
@@ -255,6 +273,10 @@ for cond_val in cond_vals:
   plt.xticks([])
   plt.yticks([])
   plt.title('$f(x_1, x_2 | x_3 = ' + str(cond_val) + ')$', fontsize=22)
+  if save_plots:
+    plt.savefig(save_dir +
+                '_'.join(['3d', dataset_name, '2d_cond',
+                          str(cond_val)]) + '.pdf')
   plt.show()
 
 # 1d marginals
@@ -283,4 +305,6 @@ if dataset_name == 'gaussians':
   plt.legend(handletextpad=0, handlelength=1, loc=3)
 else:
   plt.legend(handletextpad=0, handlelength=1)
+if save_plots:
+  plt.savefig(save_dir + '_'.join(['3d', dataset_name, '1d_marg']) + '.pdf')
 plt.show()

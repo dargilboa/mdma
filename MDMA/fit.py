@@ -1,8 +1,6 @@
 import torch as t
 import torch.optim as optim
-
 from MDMA import models
-
 from MDMA import utils
 import argparse
 import datetime
@@ -41,8 +39,6 @@ def get_default_h(parent=None):
   h_parser.add_argument('--adaptive_coupling',
                         type=utils.str2bool,
                         default=False)
-  h_parser.add_argument('--random_coupling', type=utils.str2bool, default=True)
-
   h_parser.add_argument('--mix_vars', type=utils.str2bool, default=False)
   h_parser.add_argument('--n_mix_terms', type=int, default=1)
 
@@ -51,6 +47,7 @@ def get_default_h(parent=None):
   h_parser.add_argument('--b_std', type=float, default=0)
   h_parser.add_argument('--b_bias', type=float, default=0)
   h_parser.add_argument('--a_std', type=float, default=.1)
+
   # fitting
   h_parser.add_argument('--n_epochs', '-ne', type=int, default=1000)
   h_parser.add_argument('--batch_size', '-b', type=int, default=500)
@@ -103,14 +100,14 @@ def get_default_h(parent=None):
   return h
 
 
-def fit_neural_copula(
+def fit_MDMA(
     h,
     data,
 ):
   """
   :param h: hyperparameters in the form of an argparser
   :param data: A list of train, val and test dataloaders
-  :return: The fitted model
+  :return: model: The fitted model
   """
   n_iters = h.n_epochs * h.M // h.batch_size
 
@@ -233,34 +230,6 @@ def fit_neural_copula(
       if es.step(val_nll):
         print('Early stopping criterion met, terminating.')
         return model
-
-    # plot ###
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    plt.rcParams.update({
-        "text.usetex": True,
-        "font.family": "Times New Roman",
-        "font.sans-serif": ["Helvetica"],
-        'font.size': 16
-    })
-    batch = next(iter(train_loader))
-    batch_data = batch[0][:, 0, :].to(device)
-    axes = [11, 14]
-    data = batch_data[:, axes].cpu().detach().numpy()
-    exp_factor = 1.2
-    xlim = [exp_factor * np.min(data[:, 0]), exp_factor * np.max(data[:, 0])]
-    ylim = [exp_factor * np.min(data[:, 1]), exp_factor * np.max(data[:, 1])]
-    grid_res = 100
-    x_coords = np.linspace(xlim[0], xlim[1], grid_res)
-    y_coords = np.linspace(ylim[0], ylim[1], grid_res)
-    iX, iY = np.meshgrid(x_coords, y_coords)
-    flat_grid_on_R = t.Tensor([g.flatten() for g in [iX, iY]]).transpose(0, 1)
-    model_log_density = model.log_density(
-        flat_grid_on_R, inds=axes).cpu().detach().numpy().reshape(
-            (grid_res, grid_res))
-    np.save('hepmass_marginal_data', [model_log_density, data, xlim, ylim])
-    ###
 
   return model
 

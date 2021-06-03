@@ -30,7 +30,7 @@ def fit_ci_data():
   data = load_dataset(h, data_raw)
 
   # Fit MDMA
-  model = fit.fit_neural_copula(h, data)
+  model = fit.fit_MDMA(h, data)
 
   # CI test
   dd = model.d - 2
