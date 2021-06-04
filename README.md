@@ -138,8 +138,7 @@ as well as the python packages
 
 - **`cdt>=0.5.23`** 
 - **`networkx>=2.5.1`** 
-- **`rpy2>=3.4.4`** 
-- **`pytorch>=1.0.0`**
+- **`rpy2>=3.4.4`**
 
 Run the causal discovery experiment, recovering a causal graph from data by testing for conditional independence using MDMA:
 
