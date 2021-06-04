@@ -30,8 +30,9 @@ Density estimation on a toy dataset of two spirals, showing the ability of MDMA 
 Fit two spirals density using MDMA, and plot marginals and conditionals:
 
 ```
-python3 toy_density_estimation.py
+python3 toy_density_estimation.py --dataset spirals
 ```
+Possible values for ```dataset``` are ```spirals```, ```checkerboard```, ```gaussians```.
 
 For a two spiral dataset, the samples and marginal histograms of the data take the following form:
 ![Data](media/s1.jpg)
@@ -41,8 +42,6 @@ MDMA also provides closed-form expression for all conditional densities:
 ![Conditionals](media/s4.jpg?s=100)
 
 #### UCI density estimation
-
-Density estimation on UCI dataset. Possible values for dataset are power, gas, hepmass, miniboone.
 
 Fit UCI POWER dataset using MDMA:
 
@@ -56,6 +55,7 @@ python3 UCI_density_estimation.py --dataset power \
                                   --lr 0.01 
 ```
 
+Possible values for ```dataset``` are ```power```, ```gas```, ```hepmass```, ```miniboone```.
 
 Fit UCI POWER dataset using the non-marginalizable variant nMDMA:
 
@@ -108,6 +108,13 @@ python3 MI_estimation.py
 #### Causal discovery 
 Requires 
 * **``R>=4.0.5``** 
+and R packages
+  
+* **``pcalg>=2.7-3``** 
+* **``graph>=1.70.0``** 
+* **``RBGL>=1.68.0``** 
+* **``graph>=1.70.0``** 
+
 
 as well as the python packages
 * **``cdt>=0.5.23``** 

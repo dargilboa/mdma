@@ -28,13 +28,13 @@ NAF_PARAMS = {
 
 def load_dataset(args):
   if args.dataset == 'gas':
-    dataset = GAS('/data/data/gas/ethylene_CO.pickle')
+    dataset = GAS('data/gas/ethylene_CO.pickle')
   elif args.dataset == 'hepmass':
-    dataset = HEPMASS('/data/data/hepmass')
+    dataset = HEPMASS('data/hepmass')
   elif args.dataset == 'miniboone':
-    dataset = MINIBOONE('/data/data/miniboone/data.npy')
+    dataset = MINIBOONE('data/miniboone/data.npy')
   elif args.dataset == 'power':
-    dataset = POWER('/data/data/power/data.npy')
+    dataset = POWER('data/power/data.npy')
   else:
     raise RuntimeError()
 
@@ -380,7 +380,7 @@ def main():
 
   #args.path = './checkpoint'
   args.path = os.path.join(
-      '/data/tb', '{}{}_layers{}_h{}_flows{}{}_mdp_{}_mds_{}_{}'.format(
+      'data/tb', '{}{}_layers{}_h{}_flows{}{}_mdp_{}_mds_{}_{}'.format(
           args.expname + ('_' if args.expname != '' else ''), args.dataset,
           args.layers, args.hidden_dim, args.flows,
           '_' + args.residual if args.residual else '', args.missing_data_pct,

@@ -138,8 +138,12 @@ def causal_discovery(plot_graphs=True):
 
   if plot_graphs:
     plot_dag(graph_truth, graph_mdma, graph_pc)
-  print(f'Causal mechanism: {h.causal_mechanism}, M: {h.M}, d: {h.d}')
-  print(res)
+  print(f'M: {h.M}, d: {h.d}')
+  if not h.causal_mechanism == '':
+    print(f'Causal mechanism: {h.causal_mechanism}')
+  print(
+      f'SHD(D) MDMA: {res[0]}, SHD(D) Gaussian: {res[1]}, SHD MDMA: {res[2]}, SHD Gaussian: {res[3]}'
+  )
   return res
 
 

@@ -43,7 +43,7 @@ class MDMA(nn.Module):
     self.random_coupling = random_coupling
 
     # initialize parameters for marginal CDFs
-    assert self.L >= 2
+    assert self.l >= 2
     w_scale = self.w_std / t.sqrt(t.Tensor([self.r]))
     self.w_s = t.nn.ParameterList(
         [nn.Parameter(self.w_std * t.randn(self.d, self.m, 1, self.r))])
@@ -51,7 +51,7 @@ class MDMA(nn.Module):
         [nn.Parameter(self.b_std * t.randn(self.d, self.m, self.r))])
     self.a_s = t.nn.ParameterList(
         [nn.Parameter(self.a_std * t.randn(self.d, self.m, self.r))])
-    for _ in range(self.L - 2):
+    for _ in range(self.l - 2):
       self.w_s += [
           nn.Parameter(w_scale * t.randn(self.d, self.m, self.r, self.r))
       ]

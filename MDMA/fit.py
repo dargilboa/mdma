@@ -169,8 +169,6 @@ def fit_MDMA(
                       stabilize=use_stable_nll,
                       missing_data_mask=missing_data_mask)
       nll_value = obj.item()
-
-      obj_value = obj.item()
       obj.backward()
 
       if clip_max_norm > 0:
@@ -183,10 +181,6 @@ def fit_MDMA(
       if h.verbose and step % h.print_every == 0:
 
         print_str = f'Iteration {step}, train nll: {nll_value:.4f}'
-        print_str += f', obj value: {obj_value:.4f}'
-
-        # if h.eval_validation:
-        #   print_str += f', val nll: {val_nll:.4f}'
 
         toc = time.time()
         print_str += f', elapsed: {toc - tic:.4f}, {h.print_every / (toc - tic):.4f} iterations per sec.'

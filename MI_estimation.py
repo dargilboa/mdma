@@ -5,14 +5,13 @@ import MDMA.utils as utils
 import torch as t
 
 
-def run_mi_estimation(d=10,
-                      n_samples=10000,
-                      batch_size=1000,
-                      M=10000,
-                      m=50,
-                      n_reps=3,
-                      save_model=True,
-                      plot=False):
+def run_mi_estimation(d=16,
+                      batch_size=500,
+                      m=1000,
+                      M=1000000,
+                      n_reps=5,
+                      save_model=False,
+                      plot=True):
   Sigma = np.eye(d)
   for i in range(d):
     for j in range(d):
@@ -48,7 +47,7 @@ def run_mi_estimation(d=10,
     h.patience = 200
     loaders = utils.create_loaders([data, None, None], h.batch_size)
     model = fit.fit_MDMA(h, loaders)
-    file_name = f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}'
+    file_name = f'mi_estimation_d:{d}_bs:{batch_size}_M:{M}_m:{m}_n_reps:{n_reps}'
     if save_model:
       model_file = file_name + '_checkpoint.pt'
       print('Saving model to ' + model_file)
@@ -76,9 +75,7 @@ def run_mi_estimation(d=10,
 
       # saving
       print(f'Saving results to {file_name}')
-      np.save(
-          f'mi_estimation_d:{d}_n_samples:{n_samples}_bs:{batch_size}_M:{M}_n:{n}_n_reps:{n_reps}',
-          [mis, all_mi_ests_all_reps])
+      np.save(file_name, [mis, all_mi_ests_all_reps])
   all_mi_ests_all_reps = np.array(all_mi_ests_all_reps)
 
   if plot:
@@ -86,7 +83,12 @@ def run_mi_estimation(d=10,
     plt.scatter(ind_rng, mis, label='Ground Truth')
     m, s = all_mi_ests_all_reps.mean(axis=0), all_mi_ests_all_reps.std(axis=0)
     plt.scatter(ind_rng, m, label='MDMA')
-    plt.errorbar(ind_rng, m, yerr=s, color='orange', ls='none', capsize=5)
+    plt.errorbar(ind_rng,
+                 m[0],
+                 yerr=s[0],
+                 color='orange',
+                 ls='none',
+                 capsize=5)
     plt.ylabel('$I((X_1, ..., X_k);(X_{k+1},...,X_{d}))$')
     plt.xticks(ind_rng)
     plt.xlabel('$k$')
@@ -97,14 +99,7 @@ def run_mi_estimation(d=10,
 
 
 if __name__ == '__main__':
-  all_mi_ests_all_reps, mis = run_mi_estimation(d=16,
-                                                batch_size=500,
-                                                m=1000,
-                                                M=1000000,
-                                                n_samples=99,
-                                                n_reps=5,
-                                                save_model=True,
-                                                plot=True)
+  all_mi_ests_all_reps, mis = run_mi_estimation()
   print('Ground truth:')
   print(mis)
   print('MDMA estimates:')

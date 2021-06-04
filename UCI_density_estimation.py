@@ -2,11 +2,10 @@ from MDMA import fit
 import torch as t
 import numpy as np
 
-from experiments.BNAF.data.gas import GAS
-from experiments.BNAF.data.bsds300 import BSDS300
-from experiments.BNAF.data.hepmass import HEPMASS
-from experiments.BNAF.data.miniboone import MINIBOONE
-from experiments.BNAF.data.power import POWER
+from experiments.UCI.gas import GAS
+from experiments.UCI.hepmass import HEPMASS
+from experiments.UCI.miniboone import MINIBOONE
+from experiments.UCI.power import POWER
 
 
 def fit_UCI():
@@ -18,8 +17,6 @@ def fit_UCI():
 def load_dataset(h):
   if h.dataset == 'gas':
     dataset = GAS(h.data_dir + '/gas/ethylene_CO.pickle')
-  elif h.dataset == 'bsds300':
-    dataset = BSDS300(h.data_dir + '/BSDS300/BSDS300.hdf5')
   elif h.dataset == 'hepmass':
     dataset = HEPMASS(h.data_dir + '/hepmass')
   elif h.dataset == 'miniboone':

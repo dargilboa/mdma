@@ -5,9 +5,9 @@ import MDMA.fit as fit
 import MDMA.utils as utils
 
 save_plots = True
-dataset_name = 'checkerboard'
+h = fit.get_default_h()
 M = 200000
-save_dir = "experiments/"
+save_dir = "./"
 
 
 def eval_log_density_on_grid(model,
@@ -60,7 +60,7 @@ def eval_cond_density_on_grid(
 
 # generate data
 rng = np.random.RandomState()
-if dataset_name == 'gaussians':
+if h.dataset == 'gaussians':
   scale = 4.
   centers = [[1, 0, -1], [-1, 0, .14], [0, 1, -.43], [0, -1, .71],
              [1. / np.sqrt(2), 1. / np.sqrt(2), -.71],
@@ -79,7 +79,7 @@ if dataset_name == 'gaussians':
   dataset = np.array(dataset, dtype='float32')
   dataset /= 1.414
   zlim = [-4, 4]
-elif dataset_name == 'spirals':
+elif h.dataset == 'spirals':
   n = np.sqrt(np.random.rand(M // 2, 1)) * 540 * (2 * np.pi) / 360
   d1x = -np.cos(n) * n + np.random.rand(M // 2, 1) * 0.5
   d1y = np.sin(n) * n + np.random.rand(M // 2, 1) * 0.5
@@ -89,7 +89,7 @@ elif dataset_name == 'spirals':
   dataset += np.random.randn(*dataset.shape) * 0.1
   zlim = [-2, 2]
   np.random.shuffle(dataset)
-elif dataset_name == 'checkerboard':
+elif h.dataset == 'checkerboard':
   x = np.random.rand(M)
   dataset = np.zeros((M, 3))
   one_centers = [.125, .625]
@@ -115,11 +115,11 @@ ax.scatter3D(dataset[:n_pts_to_plot, 0],
              dataset[:n_pts_to_plot, 1],
              dataset[:n_pts_to_plot, 2],
              s=1)
-if dataset_name == 'gaussians':
+if h.dataset == 'gaussians':
   ax.view_init(elev=30., azim=55)
   ax.zaxis.set_rotate_label(False)
   ax.set_zlabel('$x_3$', labelpad=-12, rotation=90)
-elif dataset_name == 'spirals':
+elif h.dataset == 'spirals':
   ax.zaxis.set_rotate_label(False)
   ax.set_zlabel('$x_3$', labelpad=-12, rotation=90)
   ax.view_init(elev=20., azim=10)
@@ -135,7 +135,7 @@ ax.yaxis.set_ticklabels([])
 ax.zaxis.set_ticklabels([])
 plt.locator_params(nbins=3)
 if save_plots:
-  plt.savefig(save_dir + '_'.join(['3d', dataset_name, 'data']) + '.pdf')
+  plt.savefig(save_dir + '_'.join(['3d', h.dataset, 'data']) + '.pdf')
 plt.show()
 
 # plot data 2d hist
@@ -143,6 +143,7 @@ ub = 4
 lb = -4
 grid_res = 60
 lims = [[lb, ub], [lb, ub], zlim]
+ax = plt.axes(projection=None)
 
 for vars in [[0, 1], [1, 2], [0, 2]]:
   hist_data = np.histogram2d(dataset[:, vars[0]],
@@ -161,7 +162,7 @@ for vars in [[0, 1], [1, 2], [0, 2]]:
   plt.title('Training data')
   if save_plots:
     plt.savefig(save_dir + '_'.join(
-        ['3d', dataset_name, 'data_2d',
+        ['3d', h.dataset, 'data_2d',
          str(vars[0] + 1),
          str(vars[1] + 1)]) + '.pdf')
   plt.show()
@@ -173,7 +174,7 @@ h.batch_size = batch_size
 h.d = 3
 h.M = M
 h.use_HT = True
-if dataset_name == 'checkerboard':
+if h.dataset == 'checkerboard':
   h.m = 250
 else:
   h.m = 1000
@@ -195,11 +196,11 @@ ax.scatter3D(samples[:n_pts_to_plot, 0],
              samples[:n_pts_to_plot, 1],
              samples[:n_pts_to_plot, 2],
              s=1)
-if dataset_name == 'gaussians':
+if h.dataset == 'gaussians':
   ax.view_init(elev=30., azim=55)
   ax.zaxis.set_rotate_label(False)
   ax.set_zlabel('$x_3$', labelpad=-12, rotation=90)
-elif dataset_name == 'spirals':
+elif h.dataset == 'spirals':
   ax.view_init(elev=20., azim=10)
   ax.zaxis.set_rotate_label(False)
   ax.set_zlabel('$x_3$', labelpad=-12, rotation=90)
@@ -215,12 +216,13 @@ ax.yaxis.set_ticklabels([])
 ax.zaxis.set_ticklabels([])
 plt.locator_params(nbins=3)
 if save_plots:
-  plt.savefig(save_dir + '_'.join(['3d', dataset_name, 'model_samples_3d']) +
+  plt.savefig(save_dir + '_'.join(['3d', h.dataset, 'model_samples_3d']) +
               '.pdf')
 plt.show()
 
 # 2d marginals
 lims = [[lb, ub], [lb, ub], zlim]
+ax = plt.axes(projection=None)
 x_coords = np.linspace(lb, ub, grid_res)
 y_coords = np.linspace(lb, ub, grid_res)
 z_coords = np.linspace(zlim[0], zlim[1], grid_res)
@@ -244,7 +246,7 @@ for vars in [[0, 1], [1, 2], [0, 2]]:
   plt.title(f'$f(x_{vars[0] + 1}, x_{vars[1] + 1})$', fontsize=22)
   if save_plots:
     plt.savefig(save_dir + '_'.join(
-        ['3d', dataset_name, '2d_marg',
+        ['3d', h.dataset, '2d_marg',
          str(vars[0] + 1),
          str(vars[1] + 1)]) + '.pdf')
   plt.show()
@@ -274,14 +276,13 @@ for cond_val in cond_vals:
   plt.yticks([])
   plt.title('$f(x_1, x_2 | x_3 = ' + str(cond_val) + ')$', fontsize=22)
   if save_plots:
-    plt.savefig(save_dir +
-                '_'.join(['3d', dataset_name, '2d_cond',
-                          str(cond_val)]) + '.pdf')
+    plt.savefig(save_dir + '_'.join(
+        ['3d', h.dataset, '2d_cond', str(cond_val)]) + '.pdf')
   plt.show()
 
 # 1d marginals
 plt.figure(figsize=(4, 4))
-if dataset_name == 'checkerboard':
+if h.dataset == 'checkerboard':
   rng = 5
 else:
   rng = 4
@@ -301,10 +302,10 @@ for i in range(3):
            color=colors[i])
 plt.plot(10, 0, 'x', color='k', label='Training \n data')
 plt.xlim([-rng, rng])
-if dataset_name == 'gaussians':
+if h.dataset == 'gaussians':
   plt.legend(handletextpad=0, handlelength=1, loc=3)
 else:
   plt.legend(handletextpad=0, handlelength=1)
 if save_plots:
-  plt.savefig(save_dir + '_'.join(['3d', dataset_name, '1d_marg']) + '.pdf')
+  plt.savefig(save_dir + '_'.join(['3d', h.dataset, '1d_marg']) + '.pdf')
 plt.show()
