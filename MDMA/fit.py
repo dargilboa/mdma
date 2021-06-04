@@ -22,12 +22,15 @@ def get_default_h(parent=None):
     h_parser = argparse.ArgumentParser(parents=[parent])
   else:
     h_parser = argparse.ArgumentParser()
+
   # data
   h_parser.add_argument('--d', type=int, default=2)
-  h_parser.add_argument('--M', type=int, default=1000)
-  h_parser.add_argument('--causal_mechanism', type=str, default='')
-  h_parser.add_argument('--dataset', type=str, default='')
+  h_parser.add_argument('--M', type=int, default=None)
+  h_parser.add_argument('--dataset', type=str, default=None)
   h_parser.add_argument('--missing_data_pct', type=float, default=0.0)
+
+  # for the causal discovery experiment
+  h_parser.add_argument('--causal_mechanism', type=str, default=None)
 
   # architecture
   h_parser.add_argument('--m', type=int, default=1000)
@@ -63,12 +66,6 @@ def get_default_h(parent=None):
   h_parser.add_argument('--gaussian_noise', type=float, default=0)
   h_parser.add_argument('--subsample_inds', type=utils.str2bool, default=False)
   h_parser.add_argument('--n_inds_to_subsample', type=int, default=20)
-  h_parser.add_argument('--cdf_regularization',
-                        type=utils.str2bool,
-                        default=False)
-  h_parser.add_argument('--hessian_regularization',
-                        type=utils.str2bool,
-                        default=False)
 
   # logging
   h_parser.add_argument('--data_dir', type=str, default='data')
@@ -94,10 +91,30 @@ def get_default_h(parent=None):
   h_parser.add_argument('--verbose', '-v', type=utils.str2bool, default=True)
   h_parser.add_argument('--print_every', '-pe', type=int, default=20)
   h_parser.add_argument('--max_iters', type=int, default=None)
-  h_parser.add_argument('--spot_instance', type=utils.str2bool, default=False)
 
   h = h_parser.parse_known_args()[0]
   return h
+
+
+def print_category(key):
+  categories = {
+      'd': 'Data',
+      'causal_mechanism': 'Causal discovery only',
+      'm': 'Architecture',
+      'w_std': 'Initialization',
+      'n_epochs': 'Fitting',
+      'data_dir': 'Logging'
+  }
+  category = categories.get(key, None)
+  if not category == None:
+    print(f"  {category}:")
+
+
+def print_arguments(h):
+  print('Arguments:')
+  for key, value in h.__dict__.items():
+    print_category(key)
+    print(f'    {key}: {value}')
 
 
 def fit_MDMA(
@@ -132,7 +149,7 @@ def fit_MDMA(
       f"Running {n_iters} iterations. Model contains {total_params} parameters."
   )
   h.total_params = total_params
-  print(h.__dict__)
+  print_arguments(h)
 
   # set up data loaders
   train_loader, val_loader, test_loader = data

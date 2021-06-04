@@ -1,24 +1,30 @@
 # MDMA
+
 Pytorch implementation of the Marginalizable Density Model Approximator — A density estimator that provides closed-form marginal and conditional densities. 
 
 ## Requirements
-* **``python>=3.6``** 
-* **``numpy>=1.20.2``** 
-* **``pytorch>=1.0.0``**
 
-Optional for visualization and plotting: ``matplotlib`` and ``tensorboardX``
+- **`python>=3.6`** 
+- **`numpy>=1.20.2`** 
+- **`pytorch>=1.0.0`**
+
+Optional for visualization and plotting: `matplotlib` and `tensorboardX`
 
 ## Structure
-* MDMA/models.py:   Implementation of MDMA class
-* MDMA/fit.py:      Fitting MDMA model
-* MDMA/utils.py:    Various auxiliary functions
-* experiments:      Code for reproducing the experiments in the paper
+
+- MDMA/models.py:   Implementation of MDMA class
+- MDMA/fit.py:      Fitting MDMA model
+- MDMA/utils.py:    Various auxiliary functions
+- experiments:      Code for reproducing the experiments in the paper
 
 ## Usage
+
 Below, example commands are given for running experiments.
 
 #### Download datasets
+
 Run the following command to download the UCI datasets:
+
 ```
 bash download_datasets.sh
 ```
@@ -32,7 +38,8 @@ Fit two spirals density using MDMA, and plot marginals and conditionals:
 ```
 python3 toy_density_estimation.py --dataset spirals
 ```
-Possible values for ```dataset``` are ```spirals```, ```checkerboard```, ```gaussians```.
+
+Possible values for `dataset` are `spirals`, `checkerboard`, `gaussians`.
 
 For a two spiral dataset, the samples and marginal histograms of the data take the following form:
 ![Data](media/s1.jpg)
@@ -42,6 +49,10 @@ MDMA also provides closed-form expression for all conditional densities:
 ![Conditionals](media/s4.jpg?s=100)
 
 #### UCI density estimation
+
+Requires:
+
+- **`pandas>=1.2.3`**
 
 Fit UCI POWER dataset using MDMA:
 
@@ -55,7 +66,7 @@ python3 UCI_density_estimation.py --dataset power \
                                   --lr 0.01 
 ```
 
-Possible values for ```dataset``` are ```power```, ```gas```, ```hepmass```, ```miniboone```.
+Possible values for `dataset` are `power`, `gas`, `hepmass`, `miniboone`.
 
 Fit UCI POWER dataset using the non-marginalizable variant nMDMA:
 
@@ -73,6 +84,10 @@ python3 UCI_density_estimation.py --dataset power \
 
 #### Density estimation with missing values
 
+Requires:
+
+- **`pandas>=1.2.3`**
+
 Fit UCI POWER dataset with 0.5 probability of missing values per entry using MDMA:
 
 ```
@@ -86,9 +101,12 @@ python3 UCI_density_estimation.py --dataset gas \
                                   --missing_data_pct 0.5 # proportion of missing values
 ```
 
+Requires (for the imputation):
+
+- **`miceforest>=2.0.4`**
+- **`scikit-learn>=0.24.2`** 
+
 Density estimation using BNAF on the same dataset after performing MICE imputation:
-Requires
-* **``miceforest>=2.0.4``** 
 
 ```
 python3 BNAF_density_estimation.py --dataset gas \
@@ -99,27 +117,29 @@ python3 BNAF_density_estimation.py --dataset gas \
 
 #### Mutual information estimation
 
-Generate data from a multivariate gaussian, fit the joint density using MDMA and estimate the mutual information between subsets of variables:
+Generate data from a multivariate Gaussian, fit the joint density using MDMA and estimate the mutual information between subsets of variables:
 
 ```
 python3 MI_estimation.py
 ```
 
-#### Causal discovery 
-Requires 
-* **``R>=4.0.5``** 
-and R packages
-  
-* **``pcalg>=2.7-3``** 
-* **``graph>=1.70.0``** 
-* **``RBGL>=1.68.0``** 
-* **``graph>=1.70.0``** 
+#### Causal discovery
 
+Requires:
+
+- **`R>=4.0.5`** 
+  and R packages
+  - **`pcalg>=2.7-3`** (on CRAN)
+  - **`graph>=1.70.0`** (on Bioconductor)
+  - **`RBGL>=1.68.0`** (on Bioconductor) 
+  - **`graph>=1.70.0`** (on Bioconductor) 
 
 as well as the python packages
-* **``cdt>=0.5.23``** 
-* **``rpy2>=3.4.4``** 
-* **``pytorch>=1.0.0``**
+
+- **`cdt>=0.5.23`** 
+- **`networkx>=2.5.1`** 
+- **`rpy2>=3.4.4`** 
+- **`pytorch>=1.0.0`**
 
 Run the causal discovery experiment, recovering a causal graph from data by testing for conditional independence using MDMA:
 
