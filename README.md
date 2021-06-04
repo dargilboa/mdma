@@ -117,7 +117,7 @@ python3 BNAF_density_estimation.py --dataset gas \
 
 #### Mutual information estimation
 
-Generate data from a multivariate gaussian, fit the joint density using MDMA and estimate the mutual information between subsets of variables:
+Generate data from a multivariate Gaussian, fit the joint density using MDMA and estimate the mutual information between subsets of variables:
 
 ```
 python3 MI_estimation.py
