@@ -1,3 +1,5 @@
+# Adapted from https://github.com/nicola-decao/BNAF
+
 import os
 import json
 import argparse
@@ -14,7 +16,6 @@ from experiments.BNAF.data.gas import GAS
 from experiments.BNAF.data.hepmass import HEPMASS
 from experiments.BNAF.data.miniboone import MINIBOONE
 from experiments.BNAF.data.power import POWER
-from sklearn.impute import KNNImputer
 import pandas as pd
 
 NAF_PARAMS = {
@@ -48,9 +49,6 @@ def load_dataset(args):
           torch.tensor(np.expand_dims(data, 1)).float().to(args.device))
     elif args.missing_data_strategy == 'mice':
       import miceforest as mf
-      #
-      # mice_data = np.load(
-      #     f'/data/data/mice/gas_mice_{args.missing_data_pct}.npy')
       traindata = dataset.trn.x
       df = pd.DataFrame(data=traindata)
       data_amp = mf.ampute_data(df, perc=args.missing_data_pct)
@@ -66,11 +64,9 @@ def load_dataset(args):
       dataset_train = torch.utils.data.TensorDataset(
           torch.tensor(np.expand_dims(mice_data, 1)).float().to(args.device))
     elif args.missing_data_strategy == 'knn':
+      from sklearn.impute import KNNImputer
       traindata = dataset.trn.x
       mask = np.random.rand(*traindata.shape) < args.missing_data_pct
-      # missing_traindata = traindata + mask * np.nan
-      # imputer = KNNImputer(n_neighbors=2)
-      # knn_data = imputer.fit_transform(missing_traindata)
       missing_traindata = traindata
       missing_traindata[np.where(mask)] = np.nan
       imputer = KNNImputer(n_neighbors=3)
