@@ -28,6 +28,7 @@ def get_default_h() -> argparse.Namespace:
   Returns:
     A namespace of parsed arguments.
   """
+
   h_parser = argparse.ArgumentParser()
 
   # data
@@ -230,7 +231,7 @@ def fit_mdma(
       print('Saving model to ' + cp_file)
       t.save(
           {
-              'model': model.state_dict(),
+              'model': model,
               'optimizer': optimizer.state_dict(),
               'scheduler': scheduler.state_dict(),
               'epoch': epoch + 1,
@@ -324,7 +325,7 @@ def load_checkpoint(model, optimizer, scheduler, epoch, use_stable_nll,
   if os.path.isfile(cp_file):
     print('Loading model from ' + cp_file)
     checkpoint = t.load(cp_file)
-    model.load_state_dict(checkpoint['model'])
+    model = checkpoint['model']
     optimizer.load_state_dict(checkpoint['optimizer'])
     scheduler.load_state_dict(checkpoint['scheduler'])
     epoch = checkpoint['epoch']

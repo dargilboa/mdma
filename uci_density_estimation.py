@@ -62,7 +62,7 @@ def load_dataset(h):
   h.M = len(dataset_train)
   h.M_val = len(dataset_valid)
 
-  return data_loader_train, data_loader_valid, data_loader_test
+  return [data_loader_train, data_loader_valid, data_loader_test]
 
 
 if __name__ == '__main__':
