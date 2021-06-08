@@ -1,4 +1,4 @@
-from MDMA import fit
+from mdma import fit
 from experiments.causal_discovery.ci_test import ci_test
 from experiments.causal_discovery.ci_data import ci_data
 import torch as t
@@ -29,8 +29,8 @@ def fit_ci_data():
   data_raw = ci_data(fn)
   data = load_dataset(h, data_raw)
 
-  # Fit MDMA
-  model = fit.fit_MDMA(h, data)
+  # Fit mdma
+  model = fit.fit_mdma(h, data)
 
   # CI test
   dd = model.d - 2

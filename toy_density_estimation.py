@@ -1,8 +1,12 @@
+# Copyright © 2021 Dar Gilboa, Ari Pakman and Thibault Vatter
+# This file is part of the mdma library and licensed under the terms of the MIT license.
+# For a copy, see the LICENSE file in the root directory.
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch as t
-import MDMA.fit as fit
-import MDMA.utils as utils
+import mdma.fit as fit
+import mdma.utils as utils
 
 save_plots = True
 h = fit.get_default_h()
@@ -185,7 +189,7 @@ h.save_checkpoints = False
 loaders = utils.create_loaders([dataset, None, None], batch_size)
 h.eval_validation = False
 h.eval_test = False
-model = fit.fit_MDMA(h, loaders)
+model = fit.fit_mdma(h, loaders)
 
 # plot samples from model
 plt.figure()

@@ -1,12 +1,17 @@
+# Copyright © 2021 Dar Gilboa, Ari Pakman and Thibault Vatter
+# This file is part of the mdma library and licensed under the terms of the MIT license.
+# For a copy, see the LICENSE file in the root directory.
+
 import torch as t
 import torch.optim as optim
-from MDMA import models
-from MDMA import utils
+from mdma import models
+from mdma import utils
 import argparse
 import datetime
 import json
 import os
 import time
+from typing import List
 
 if t.cuda.is_available():
   t.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -17,11 +22,13 @@ else:
   device = "cpu"
 
 
-def get_default_h(parent=None):
-  if parent is not None:
-    h_parser = argparse.ArgumentParser(parents=[parent])
-  else:
-    h_parser = argparse.ArgumentParser()
+def get_default_h() -> argparse.Namespace:
+  """ Get default argument parser.
+
+  Returns:
+    A namespace of parsed arguments.
+  """
+  h_parser = argparse.ArgumentParser()
 
   # data
   h_parser.add_argument('--d', type=int, default=2)
@@ -117,15 +124,20 @@ def print_arguments(h):
     print(f'    {key}: {value}')
 
 
-def fit_MDMA(
-    h,
-    data,
-):
+def fit_mdma(
+    h: argparse.Namespace,
+    data: List[t.utils.data.DataLoader],
+) -> models.MDMA:
+  """ Fit MDMA model to data using stochastic gradient descent on the negative log likelihood.
+
+  Args:
+    h: Argument parser containing training and model hyperparameters.
+    data: List of training, validation and test dataloaders.
+
+  Returns:
+    Fitted MDMA model.
   """
-  :param h: hyperparameters in the form of an argparser
-  :param data: A list of train, val and test dataloaders
-  :return: model: The fitted model
-  """
+
   n_iters = h.n_epochs * h.M // h.batch_size
 
   save_path = h.save_path
@@ -151,12 +163,12 @@ def fit_MDMA(
   h.total_params = total_params
   print_arguments(h)
 
-  # set up data loaders
+  # Set up data loaders
   train_loader, val_loader, test_loader = data
 
   t.autograd.set_detect_anomaly(h.set_detect_anomaly)
 
-  # fit MDMA
+  # Fit MDMA
   if h.use_HT and h.adaptive_coupling:
     set_adaptive_coupling(h, model, train_loader)
   clip_max_norm = 0
@@ -342,10 +354,11 @@ def get_tb_path(h):
 
 
 def set_adaptive_coupling(h, model, train_loader):
+  # Couple variables in HT decomposition based on correlations
   n_batches = 10 * h.d**2 // h.batch_size + 1
   train_iter = iter(train_loader)
   if h.missing_data_pct > 0:
-    # multiply by mask
+    # Multiply by mask
     batches = [t.prod(next(train_iter)[0], dim=1) for _ in range(n_batches)]
   else:
     batches = [next(train_iter)[0][:, 0, :] for _ in range(n_batches)]

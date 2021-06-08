@@ -1,4 +1,8 @@
-from MDMA import fit
+# Copyright © 2021 Dar Gilboa, Ari Pakman and Thibault Vatter
+# This file is part of the mdma library and licensed under the terms of the MIT license.
+# For a copy, see the LICENSE file in the root directory.
+
+from mdma import fit
 import torch as t
 import numpy as np
 
@@ -8,10 +12,10 @@ from experiments.UCI.miniboone import MINIBOONE
 from experiments.UCI.power import POWER
 
 
-def fit_UCI():
+def fit_uci():
   h = fit.get_default_h()
   data = load_dataset(h)
-  outs = fit.fit_MDMA(h, data)
+  outs = fit.fit_mdma(h, data)
 
 
 def load_dataset(h):
@@ -62,4 +66,4 @@ def load_dataset(h):
 
 
 if __name__ == '__main__':
-  fit_UCI()
+  fit_uci()

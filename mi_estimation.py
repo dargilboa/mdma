@@ -1,7 +1,11 @@
+# Copyright © 2021 Dar Gilboa, Ari Pakman and Thibault Vatter
+# This file is part of the mdma library and licensed under the terms of the MIT license.
+# For a copy, see the LICENSE file in the root directory.
+
 import numpy as np
 import matplotlib.pyplot as plt
-import MDMA.fit as fit
-import MDMA.utils as utils
+import mdma.fit as fit
+import mdma.utils as utils
 import torch as t
 
 
@@ -46,7 +50,7 @@ def run_mi_estimation(d=16,
     h.M = M
     h.patience = 200
     loaders = utils.create_loaders([data, None, None], h.batch_size)
-    model = fit.fit_MDMA(h, loaders)
+    model = fit.fit_mdma(h, loaders)
     file_name = f'mi_estimation_d:{d}_bs:{batch_size}_M:{M}_m:{m}_n_reps:{n_reps}'
     if save_model:
       model_file = file_name + '_checkpoint.pt'
@@ -82,7 +86,7 @@ def run_mi_estimation(d=16,
     plt.figure()
     plt.scatter(ind_rng, mis, label='Ground Truth')
     m, s = all_mi_ests_all_reps.mean(axis=0), all_mi_ests_all_reps.std(axis=0)
-    plt.scatter(ind_rng, m, label='MDMA')
+    plt.scatter(ind_rng, m, label='mdma')
     plt.errorbar(ind_rng,
                  m[0],
                  yerr=s[0],
@@ -102,5 +106,5 @@ if __name__ == '__main__':
   all_mi_ests_all_reps, mis = run_mi_estimation()
   print('Ground truth:')
   print(mis)
-  print('MDMA estimates:')
+  print('mdma estimates:')
   print(all_mi_ests_all_reps)

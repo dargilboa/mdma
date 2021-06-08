@@ -1,20 +1,21 @@
 # MDMA
 
-Pytorch implementation of the Marginalizable Density Model Approximator — A density estimator that provides closed-form marginal and conditional densities. 
+PyTorch implementation of the Marginalizable Density Model Approximator — A density estimator that provides closed-form marginal and conditional densities. 
 
 ## Requirements
 
 - **`python>=3.6`** 
 - **`numpy>=1.20.2`** 
 - **`pytorch>=1.0.0`**
+- **`pandas>=1.2.3`**
 
 Optional for visualization and plotting: `matplotlib` and `tensorboardX`
 
 ## Structure
 
-- MDMA/models.py:   Implementation of MDMA class
-- MDMA/fit.py:      Fitting MDMA model
-- MDMA/utils.py:    Various auxiliary functions
+- mdma/models.py:   Implementation of MDMA class
+- mdma/fit.py:      Fitting MDMA model
+- mdma/utils.py:    Various auxiliary functions
 - experiments:      Code for reproducing the experiments in the paper
 
 ## Usage
@@ -50,14 +51,10 @@ MDMA also provides closed-form expression for all conditional densities:
 
 #### UCI density estimation
 
-Requires:
-
-- **`pandas>=1.2.3`**
-
 Fit UCI POWER dataset using MDMA:
 
 ```
-python3 UCI_density_estimation.py --dataset power \
+python3 uci_density_estimation.py --dataset power \
                                   --m 1000 \           # Width of tensor network
                                   --r 3 \              # Width of univariate CDF networks
                                   --l 2 \              # Depth of univariate CDF networks
@@ -71,7 +68,7 @@ Possible values for `dataset` are `power`, `gas`, `hepmass`, `miniboone`.
 Fit UCI POWER dataset using the non-marginalizable variant nMDMA:
 
 ```
-python3 UCI_density_estimation.py --dataset power \
+python3 uci_density_estimation.py --dataset power \
                                   --m 1000 \           # Width of tensor network
                                   --r 3 \              # Width of univariate CDF networks
                                   --l 2 \              # Depth of univariate CDF networks
@@ -91,7 +88,7 @@ Requires:
 Fit UCI POWER dataset with 0.5 probability of missing values per entry using MDMA:
 
 ```
-python3 UCI_density_estimation.py --dataset gas \
+python3 uci_density_estimation.py --dataset gas \
                                   --m 4000 \
                                   --r 5 \
                                   --l 4 \
@@ -109,7 +106,7 @@ Requires (for the imputation):
 Density estimation using BNAF on the same dataset after performing MICE imputation:
 
 ```
-python3 BNAF_density_estimation.py --dataset gas \
+python3 bnaf_density_estimation.py --dataset gas \
                                    --hidden_dim 320 \
                                    --missing_data_pct 0.5 \
                                    --missing_data_strategy mice
@@ -120,7 +117,7 @@ python3 BNAF_density_estimation.py --dataset gas \
 Generate data from a multivariate Gaussian, fit the joint density using MDMA and estimate the mutual information between subsets of variables:
 
 ```
-python3 MI_estimation.py
+python3 mi_estimation.py
 ```
 
 #### Causal discovery

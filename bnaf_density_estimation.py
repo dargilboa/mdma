@@ -201,14 +201,6 @@ def create_model(args, verbose=False):
 def save_model(model, optimizer, epoch, args):
   def f():
     return 0
-    # if args.save:
-    #   print('Saving model..')
-    #   torch.save(
-    #       {
-    #           'model': model.state_dict(),
-    #           'optimizer': optimizer.state_dict(),
-    #           'epoch': epoch
-    #       }, os.path.join(args.load or args.path, 'checkpoint.pt'))
 
   return f
 
@@ -249,14 +241,6 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid,
     train_loss = []
 
     for batch, in t:
-      # if args.missing_data_pct > 0:
-      #   x_mb = batch[:, 0, :]
-      #   mask = batch[:, 1, :]
-      #   if args.missing_data_strategy == 'drop':
-      #     x_mb = x_mb[torch.where(torch.prod(mask, dim=1) == 1)[0], :]
-      #   elif args.missing_data_strategy == 'mean_imputation':
-      #     means = torch.mean(x_mb, dim=0)
-      #     x_mb = x_mb * mask + means * (1 - mask)
       if args.missing_data_pct > 0 and args.missing_data_strategy == 'mean_imputation':
         x_mb = batch[:, 0, :]
         mask = batch[:, 1, :]
@@ -315,7 +299,6 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid,
     if stop:
       break
 
-  #load_model(model, optimizer, args)()
   optimizer.swap()
   validation_loss = -torch.stack([
       compute_log_p_x(model, x_mb).mean().detach()
@@ -330,7 +313,6 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid,
   print('Validation loss: {:4.3f}'.format(validation_loss.item()))
   print('Test loss:       {:4.3f}'.format(test_loss.item()))
 
-  #if args.save:
   with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
     print('###### Stop training after {} epochs!'.format(epoch + 1), file=f)
     print('Validation loss: {:4.3f}'.format(validation_loss.item()), file=f)
@@ -378,7 +360,6 @@ def main():
   print('Arguments:')
   pprint.pprint(args.__dict__)
 
-  #args.path = './checkpoint'
   args.path = os.path.join(
       'data/tb', '{}{}_layers{}_h{}_flows{}{}_mdp_{}_mds_{}_{}'.format(
           args.expname + ('_' if args.expname != '' else ''), args.dataset,

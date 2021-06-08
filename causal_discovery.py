@@ -1,13 +1,17 @@
-from MDMA import fit
+# Copyright © 2021 Dar Gilboa, Ari Pakman and Thibault Vatter
+# This file is part of the mdma library and licensed under the terms of the MIT license.
+# For a copy, see the LICENSE file in the root directory.
+
+from mdma import fit
 from experiments.causal_discovery.pcalg import estimate_skeleton, estimate_cpdag
-from MDMA import utils
+from mdma import utils
 from cdt.data import load_dataset, AcyclicGraphGenerator
-from cdt.metrics import SHD, SID
+from cdt.metrics import SHD
 import torch as t
 import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
-from networkx.readwrite import write_gpickle, read_gpickle, read_graphml
+from networkx.readwrite import write_gpickle
 
 import rpy2.robjects as robjects
 r = robjects.r
@@ -73,7 +77,7 @@ def plot_dag(graph_truth, graph_mdma, graph_pc):
   nx.draw_networkx_labels(graph_truth, pos, ax=axis[2])
   axis[0].set_title("True DAG")
   axis[1].set_title("Recovered CPDAG (Gaussian PC)")
-  axis[2].set_title("Recovered CPDAG (MDMA PC)")
+  axis[2].set_title("Recovered CPDAG (mdma PC)")
   figure.tight_layout()
   plt.savefig('random_DAG.pdf')
   plt.show()
@@ -112,15 +116,15 @@ def causal_discovery(plot_graphs=True):
   graph_pc = nx.relabel_nodes(graph_pc,
                               dict(zip(graph_pc.nodes, graph_pc_nodes)))
 
-  # Fit MDMA
-  print('Fitting MDMA')
+  # Fit mdma
+  print('Fitting mdma')
   h.eval_validation = False
   h.eval_test = False
   data = utils.create_loaders([data_np, None, None], h.batch_size)
-  model = fit.fit_MDMA(h, data)
+  model = fit.fit_mdma(h, data)
 
-  # MDMA PC
-  print('MDMA PC')
+  # mdma PC
+  print('mdma PC')
   (graph_mdma, sep_set) = estimate_skeleton(model, data, alpha=0.01)
   graph_mdma = estimate_cpdag(skel_graph=graph_mdma, sep_set=sep_set)
   graph_mdma = nx.relabel_nodes(graph_mdma,
@@ -142,7 +146,7 @@ def causal_discovery(plot_graphs=True):
   if not h.causal_mechanism == '':
     print(f'Causal mechanism: {h.causal_mechanism}')
   print(
-      f'SHD(D) MDMA: {res[0]}, SHD(D) Gaussian: {res[1]}, SHD MDMA: {res[2]}, SHD Gaussian: {res[3]}'
+      f'SHD(D) mdma: {res[0]}, SHD(D) Gaussian: {res[1]}, SHD mdma: {res[2]}, SHD Gaussian: {res[3]}'
   )
   return res
 
