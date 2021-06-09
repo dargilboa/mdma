@@ -1,6 +1,6 @@
 # MDMA
 
-PyTorch implementation of the Marginalizable Density Model Approximator — a density estimator that provides closed-form marginal and conditional densities. 
+PyTorch implementation of the Marginalizable Density Model Approximator — a neural density estimator that provides closed-form marginal and conditional densities. 
 
 ## Requirements
 
