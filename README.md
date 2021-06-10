@@ -27,7 +27,7 @@ Below, example commands are given for running experiments.
 
 #### Download datasets
 
-Run the following command to download the UCI datasets:
+Download UCI datasets:
 
 ```
 bash download_datasets.sh
