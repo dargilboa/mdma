@@ -8,59 +8,10 @@ import torch as t
 import mdma.fit as fit
 import mdma.utils as utils
 
-save_plots = True
+save_plots = False
 h = fit.get_default_h()
 M = 200000
 save_dir = "./"
-
-
-def eval_log_density_on_grid(model,
-                             meshgrid,
-                             inds=...,
-                             grid_res=20,
-                             batch_size=200):
-  flat_grid_on_R = np.array([g.flatten() for g in meshgrid]).transpose()
-  if inds == ...:
-    final_shape = (grid_res, grid_res, grid_res)
-  else:
-    final_shape = (grid_res, grid_res)
-  model_log_density = []
-  for grid_part in np.split(flat_grid_on_R, len(flat_grid_on_R) // batch_size):
-    model_log_density += [
-        model.log_density(t.tensor(grid_part).float(),
-                          inds=inds).cpu().detach().numpy()
-    ]
-  model_log_density = np.concatenate(model_log_density).reshape(final_shape)
-  return model_log_density
-
-
-def eval_cond_density_on_grid(
-    model,
-    meshgrid,
-    cond_val,
-    inds=...,
-    grid_res=20,
-    batch_size=200,
-    cond_inds=...,
-):
-  flat_grid_on_R = np.array([g.flatten() for g in meshgrid]).transpose()
-  if inds == ...:
-    final_shape = (grid_res, grid_res, grid_res)
-  else:
-    final_shape = (grid_res, grid_res)
-  model_cond_density = []
-  split_grid = np.split(flat_grid_on_R, len(flat_grid_on_R) // batch_size)
-  for grid_part in split_grid:
-    cond_x = cond_val * t.ones((batch_size, 1)).float()
-    model_cond_density += [
-        model.cond_density(t.tensor(grid_part).float(),
-                           inds=inds,
-                           cond_X=cond_x,
-                           cond_inds=cond_inds).cpu().detach().numpy()
-    ]
-  model_cond_density = np.concatenate(model_cond_density).reshape(final_shape)
-  return model_cond_density
-
 
 # generate data
 rng = np.random.RandomState()
@@ -110,7 +61,7 @@ elif h.dataset == 'checkerboard':
   dataset = dataset * 8 - 4
   zlim = [-4, 4]
 
-# plot data 3d scatter
+# Plot data 3d scatter
 plt.figure()
 n_pts_to_plot = 2000
 ax = plt.axes(projection='3d')
@@ -142,7 +93,7 @@ if save_plots:
   plt.savefig(save_dir + '_'.join(['3d', h.dataset, 'data']) + '.pdf')
 plt.show()
 
-# plot data 2d hist
+# Plot 2d histogram of data
 ub = 4
 lb = -4
 grid_res = 60
@@ -171,7 +122,7 @@ for vars in [[0, 1], [1, 2], [0, 2]]:
          str(vars[1] + 1)]) + '.pdf')
   plt.show()
 
-# create model and fit
+# Create model and fit
 batch_size = 1000
 h = fit.get_default_h()
 h.batch_size = batch_size
@@ -191,7 +142,7 @@ h.eval_validation = False
 h.eval_test = False
 model = fit.fit_mdma(h, loaders)
 
-# plot samples from model
+# Plot samples from model
 plt.figure()
 n_pts_to_plot = 2000
 ax = plt.axes(projection='3d')
@@ -235,10 +186,10 @@ for vars in [[0, 1], [1, 2], [0, 2]]:
   lim0 = lims[vars[0]]
   lim1 = lims[vars[1]]
   mg = np.meshgrid(coords[vars[0]], coords[vars[1]])
-  model_log_density = eval_log_density_on_grid(model,
-                                               mg,
-                                               inds=vars,
-                                               grid_res=grid_res)
+  model_log_density = utils.eval_log_density_on_grid(model,
+                                                     mg,
+                                                     inds=vars,
+                                                     grid_res=grid_res)
   plt.figure()
   plt.imshow(np.exp(model_log_density),
              extent=[lim0[0], lim0[1], lim1[0], lim1[1]],
@@ -265,12 +216,12 @@ mg = np.meshgrid(x_coords, y_coords)
 inds = [0, 1]
 cond_vals = [-.5, 0, .5]
 for cond_val in cond_vals:
-  model_cond_density = eval_cond_density_on_grid(model,
-                                                 mg,
-                                                 cond_val,
-                                                 inds=inds,
-                                                 cond_inds=[2],
-                                                 grid_res=grid_res)
+  model_cond_density = utils.eval_cond_density_on_grid(model,
+                                                       mg,
+                                                       cond_val,
+                                                       inds=inds,
+                                                       cond_inds=[2],
+                                                       grid_res=grid_res)
 
   plt.figure(figsize=(4, 4))
   plt.imshow(model_cond_density, extent=[lb, ub, lb, ub])

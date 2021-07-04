@@ -170,3 +170,51 @@ class EarlyStopping(object):
         self.is_better = lambda a, best: a < best - (best * min_delta / 100)
       if mode == 'max':
         self.is_better = lambda a, best: a > best + (best * min_delta / 100)
+
+
+def eval_log_density_on_grid(model,
+                             meshgrid,
+                             inds=...,
+                             grid_res=20,
+                             batch_size=200):
+  flat_grid_on_R = np.array([g.flatten() for g in meshgrid]).transpose()
+  if inds == ...:
+    final_shape = (grid_res, grid_res, grid_res)
+  else:
+    final_shape = (grid_res, grid_res)
+  model_log_density = []
+  for grid_part in np.split(flat_grid_on_R, len(flat_grid_on_R) // batch_size):
+    model_log_density += [
+        model.log_density(t.tensor(grid_part).float(),
+                          inds=inds).cpu().detach().numpy()
+    ]
+  model_log_density = np.concatenate(model_log_density).reshape(final_shape)
+  return model_log_density
+
+
+def eval_cond_density_on_grid(
+    model,
+    meshgrid,
+    cond_val,
+    inds=...,
+    grid_res=20,
+    batch_size=200,
+    cond_inds=...,
+):
+  flat_grid_on_R = np.array([g.flatten() for g in meshgrid]).transpose()
+  if inds == ...:
+    final_shape = (grid_res, grid_res, grid_res)
+  else:
+    final_shape = (grid_res, grid_res)
+  model_cond_density = []
+  split_grid = np.split(flat_grid_on_R, len(flat_grid_on_R) // batch_size)
+  for grid_part in split_grid:
+    cond_x = cond_val * t.ones((batch_size, 1)).float()
+    model_cond_density += [
+        model.cond_density(t.tensor(grid_part).float(),
+                           inds=inds,
+                           cond_X=cond_x,
+                           cond_inds=cond_inds).cpu().detach().numpy()
+    ]
+  model_cond_density = np.concatenate(model_cond_density).reshape(final_shape)
+  return model_cond_density

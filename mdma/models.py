@@ -19,8 +19,9 @@ class MDMA(nn.Module):
      l: Depth of univariate density networks
      r: Width of univariate density networks
      w_std: Standard deviation of univariate weight matrices
-     b_bias: Bias of univariate biases
+     w_bias: Bias of univariate weight matrices
      b_std: Standard deviation of univariate biases
+     b_bias: Bias of univariate biases
      a_std: Standard deviation of univariate weight vectors
      a_HT_std: Standard deviation of Hierachical Tucker tensor parameters
      HT_poolsize: Hierachical Tucker tensor pool size
@@ -37,8 +38,9 @@ class MDMA(nn.Module):
       l: int = 2,
       r: int = 3,
       w_std: float = 1.0,
-      b_bias: float = 0,
+      w_bias: float = 1.0,
       b_std: float = 0,
+      b_bias: float = 0,
       a_std: float = 1.0,
       a_HT_std: float = 0.1,
       HT_poolsize: int = 2,
@@ -57,6 +59,7 @@ class MDMA(nn.Module):
     self.l = l
     self.nonneg = t.nn.Softplus(10)
     self.w_std = w_std
+    self.w_bias = w_bias
     self.a_std = a_std
     self.a_HT_std = a_HT_std
     self.b_std = b_std
@@ -70,21 +73,29 @@ class MDMA(nn.Module):
     # Initialize parameters for univariate CDFs
     assert self.l >= 2
     w_scale = self.w_std / t.sqrt(t.Tensor([self.r]))
-    self.w_s = t.nn.ParameterList(
-        [nn.Parameter(self.w_std * t.randn(self.d, self.m, 1, self.r))])
+    self.w_s = t.nn.ParameterList([
+        nn.Parameter(self.w_std * t.randn(self.d, self.m, 1, self.r) + w_bias)
+    ])
     self.b_s = t.nn.ParameterList(
-        [nn.Parameter(self.b_std * t.randn(self.d, self.m, self.r))])
+        [nn.Parameter(self.b_std * t.randn(self.d, self.m, self.r) + b_bias)])
     self.a_s = t.nn.ParameterList(
         [nn.Parameter(self.a_std * t.randn(self.d, self.m, self.r))])
     for _ in range(self.l - 2):
       self.w_s += [
-          nn.Parameter(w_scale * t.randn(self.d, self.m, self.r, self.r))
+          nn.Parameter(w_scale * t.randn(self.d, self.m, self.r, self.r) +
+                       w_bias)
       ]
-      self.b_s += [nn.Parameter(self.b_std * t.randn(self.d, self.m, self.r))]
+      self.b_s += [
+          nn.Parameter(self.b_std * t.randn(self.d, self.m, self.r) + b_bias)
+      ]
       self.a_s += [nn.Parameter(self.a_std * t.randn(self.d, self.m, self.r))]
 
-    self.w_s += [nn.Parameter(w_scale * t.randn(self.d, self.m, self.r, 1))]
-    self.b_s += [nn.Parameter(self.b_std * t.randn(self.d, self.m, 1))]
+    self.w_s += [
+        nn.Parameter(w_scale * t.randn(self.d, self.m, self.r, 1) + w_bias)
+    ]
+    self.b_s += [
+        nn.Parameter(self.b_std * t.randn(self.d, self.m, 1) + b_bias)
+    ]
 
     # HT parameters
     if self.use_HT:
@@ -158,18 +169,20 @@ class MDMA(nn.Module):
 
     if fast_sample:
       phis = X.transpose(0, 1).unsqueeze(0).unsqueeze(-1)
-      ks = ks.unsqueeze(-1)
+      ks = ks.transpose(0, 1).unsqueeze(-1)
+      # Pick only the weights for variables in inds and neurons specified by ks
       sliced_ws = [
-          w.gather(1,
-                   ks.unsqueeze(-1).expand(*([-1, -1] + list(w.shape[2:]))))
+          w[inds, ...].gather(
+              1,
+              ks.unsqueeze(-1).expand(*([-1, -1] + list(w.shape[2:]))))
           for w in self.w_s
       ]
       sliced_bs = [
-          b.gather(1, ks.expand(*([-1, -1] + list(b.shape[2:]))))
+          b[inds, ...].gather(1, ks.expand(*([-1, -1] + list(b.shape[2:]))))
           for b in self.b_s
       ]
       sliced_as = [
-          a.gather(1, ks.expand(*([-1, -1] + list(a.shape[2:]))))
+          a[inds, ...].gather(1, ks.expand(*([-1, -1] + list(a.shape[2:]))))
           for a in self.a_s
       ]
     else:
@@ -523,6 +536,9 @@ class MDMA(nn.Module):
       self,
       S: int,
       batch_size: int = None,
+      inds: List[int] = ...,
+      cond_inds: List[int] = None,
+      cond_X: t.Tensor = None,
       n_bisect_iter: int = 35,
       upper_bound: float = 1e3,
       lower_bound: float = -1e3,
@@ -532,23 +548,44 @@ class MDMA(nn.Module):
     Args:
       S: Number of samples.
       batch_size: Batch size to use for sampling (if not provided, S is used)
+      inds: List of indices between 0 and self.d - 1 for which to compute the density.
+      cond_inds: List of indices between 0 and self.d to condition on (disjoint from inds).
+      cond_X: [n_conds x len(cond_inds)] matrix of values to condition on.
       n_bisect_iter: Number of iterations of the bisection method when inverting univariate CDFs
       upper_bound: Upper bound on variable values, used for bisection.
       lower_bound: Lower bound on variable values, used for bisection.
 
     Returns:
-      A [S x self.d] matrix of samples.
+      If not conditioning or n_conds == 1, returns a [S x len(inds)] matrix of samples.
+      Otherwise, returns a [n_conds x S x len(inds)] tensor of samples.
+      All variables that are not in inds or cond_inds are marginalized out.
     """
 
     assert self.use_HT
     if batch_size is None:
       batch_size = S
+    if cond_inds is None:
+      n_conds = 1
+    else:
+      n_conds, n_cond_vars = cond_X.shape
+      if inds is ...:
+        inds = [ind for ind in range(self.d) if ind not in cond_inds]
+    if inds is ...:
+      n_vars = self.d
+    else:
+      n_vars = len(inds)
+    n_samples = S * n_conds
 
     all_samples = []
     with t.no_grad():
       # Sample mixture components
-      ks = t.tensor([[0] * S])
-      for a in reversed(self.a_HTs):
+      ks = t.zeros((1, n_samples)).long()
+      ffs = [None] * self.L_HT
+      if cond_inds is not None:
+        # Compute features for conditional sampling
+        ffs = self.conditional_features(cond_inds, cond_X)
+
+      for a, ff in zip(reversed(self.a_HTs), reversed(ffs)):
         # If a.shape[0] is smaller than prev_a.shape[0], truncate ks
         ks = ks[:a.shape[0]]
 
@@ -557,30 +594,40 @@ class MDMA(nn.Module):
             1, 0, 2))  # multinomial_coeffs[p,q,s] = a[p,q,ks[q,s]]
         multinomial_coeffs = a.gather(
             2,
-            ks.unsqueeze(0).expand(a.shape[0], -1, -1)).squeeze()
+            ks.unsqueeze(0).expand(a.shape[0], -1, -1))
+
+        # If conditioning, compute conditional multinomial coefficients
+        # at this point multinomial_coeffs is [m x width_l x S * n_conds]
+        if cond_inds is not None:
+          ff = ff.permute(2, 1, 0)  # ff is m x width_l x n_conds
+          multinomial_coeffs = multinomial_coeffs * ff.repeat(1, 1, S)
+          # We don't need to normalize by the sum
+
         # Reorder so that the rows of multinomial_coeffs are categorical dists
         multinomial_coeffs = multinomial_coeffs.reshape((self.m, -1)).t()
 
+        # Sample from multinomial distribution and repeat the results
         new_ks = t.multinomial(multinomial_coeffs,
                                1).reshape_as(ks)  # dim_{l+1} x S
         ks = t.repeat_interleave(new_ks, repeats=self.HT_poolsize,
                                  dim=0)  # (self.HT_poolsize*dim_{l+1}) x S
 
-      # Truncate if self.d is not a power of self.HT_poolsize
+      # Truncate if self.d is not a power of self.HT_poolsize, and restrict to the variables in inds
       ks = ks[:self.d]
+      ks = ks[inds, ...]
       ks = ks.t()
 
       # Sample from each component
-      U = t.rand(S, self.d)
+      U = t.rand(n_samples, n_vars)
       U_dataloader = t.utils.data.DataLoader(t.stack([U, ks]).transpose(0, 1),
                                              batch_size=batch_size,
                                              shuffle=False)
       for batch_idx, batch in enumerate(U_dataloader):
-        batch_Us, batch_ks = batch[:, 0, :], batch[:, 1, :].long().t()
+        batch_Us, batch_ks = batch[:, 0, :], batch[:, 1, :].long()
 
         # Define a CDF function R^(batch_size x self.d) -> [0,1]^(batch_size x self.d) and invert
         def CDF(s):
-          phis = self.phis(s, fast_sample=True, ks=batch_ks)
+          phis = self.phis(s, inds=inds, fast_sample=True, ks=batch_ks)
           return phis.squeeze().t()
 
         samples = utils.invert(CDF,
@@ -589,7 +636,38 @@ class MDMA(nn.Module):
                                ub=upper_bound,
                                lb=lower_bound)
         all_samples.append(samples.cpu().detach().numpy())
-      return np.concatenate(all_samples)
+      return np.concatenate(all_samples).reshape(
+          (n_conds, S, n_vars)).squeeze()
+
+  def conditional_features(
+      self,
+      cond_inds: List[int],
+      cond_X: t.Tensor,
+  ):
+    """
+
+    Args:
+      cond_inds:
+      cond_X: n_conds x len(cond_inds)
+
+    Returns:
+      List of tensors of shape [n_conds x width_l x self.m]
+    """
+    n_conds = cond_X.shape[0]
+    f = t.ones((n_conds, self.d, self.m))
+    f[:, cond_inds, :] = self.phidots(cond_X, cond_inds)
+    ffs = []
+
+    for a_s, couplings in zip(self.a_HTs, self.all_couplings):
+      f = [t.prod(f[:, coupling, :], dim=1) for coupling in couplings]
+      # we only use products of fs, storing after computing products reduces the memory required
+      ffs += [t.stack(f, dim=1)]
+
+      # normalize sum of a_s across second dimension
+      a_s = self.nonneg(a_s)
+      a_s = a_s / t.sum(a_s, dim=1, keepdim=True)
+      f = t.stack([t.matmul(phid, a) for phid, a in zip(f, a_s)], dim=1)
+    return ffs
 
   def condCDF(self,
               k: int,
@@ -632,6 +710,7 @@ class MDMA(nn.Module):
 
   def cond_density(self, X: t.Tensor, inds: List[int], cond_X: t.Tensor,
                    cond_inds: List[int]) -> t.Tensor:
+    #TODO: update for vector cond_X, as well as toy examples
     """ Compute marginal density at points X conditioned on a subset of variables.
 
     Args:

@@ -55,9 +55,10 @@ def get_default_h() -> argparse.Namespace:
 
   # initialization
   h_parser.add_argument('--w_std', type=float, default=1.0)
+  h_parser.add_argument('--w_bias', type=float, default=1.0)
   h_parser.add_argument('--b_std', type=float, default=0)
   h_parser.add_argument('--b_bias', type=float, default=0)
-  h_parser.add_argument('--a_std', type=float, default=.1)
+  h_parser.add_argument('--a_std', type=float, default=1)
 
   # fitting
   h_parser.add_argument('--n_epochs', '-ne', type=int, default=1000)
@@ -289,8 +290,9 @@ def initialize(h):
       l=h.l,
       r=h.r,
       w_std=h.w_std,
-      b_bias=h.b_bias,
+      w_bias=h.w_bias,
       b_std=h.b_std,
+      b_bias=h.b_bias,
       a_std=h.a_std,
       use_HT=h.use_HT,
       use_MERA=h.use_MERA,
