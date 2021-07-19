@@ -543,7 +543,7 @@ class MDMA(nn.Module):
       upper_bound: float = 1e3,
       lower_bound: float = -1e3,
   ) -> t.Tensor:
-    """ Fast sampling from MDMA by sampling a mixture component first and then sampling from a single CDF for each datapoint.
+    """ Sampling from MDMA by sampling a mixture component first and then sampling from a single CDF for each datapoint.
 
     Args:
       S: Number of samples.
