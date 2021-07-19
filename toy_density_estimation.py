@@ -8,7 +8,7 @@ import torch as t
 import mdma.fit as fit
 import mdma.utils as utils
 
-save_plots = False
+save_plots = True
 h = fit.get_default_h()
 M = 200000
 save_dir = "./"

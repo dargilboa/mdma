@@ -153,21 +153,21 @@ class MDMA(nn.Module):
   def phis(self,
            X: t.Tensor,
            inds: List[int] = ...,
-           fast_sample: bool = False,
+           single_phi_per_point: bool = False,
            ks: t.Tensor = None) -> t.Tensor:
     """ Evaluate all univariate CDFs at points X.
 
     Args:
       X: [B x len(inds)] matrix of datapoints.
       inds: List of indices between 0 and self.d for computing marginal CDFs. Defaults to all variables.
-      fast_sample: Indicated whether a single CDF is evaluated for each datapoint, used for fast sampling
+      single_phi_per_point: Indicated whether a single CDF is evaluated for each datapoint, used for fast sampling
       ks: [B x len(inds)] matrix of integers between 0 and self.m - 1 indicating which univariate CDFs to evaluate for each datapoint.
 
     Returns:
       A [B x len(inds) x self.m] tensor of CDF values if fast_sample == False, otherwise a [B x len(inds)] tensor.
     """
 
-    if fast_sample:
+    if single_phi_per_point:
       phis = X.transpose(0, 1).unsqueeze(0).unsqueeze(-1)
       ks = ks.transpose(0, 1).unsqueeze(-1)
       # Pick only the weights for variables in inds and neurons specified by ks
@@ -580,10 +580,12 @@ class MDMA(nn.Module):
     with t.no_grad():
       # Sample mixture components
       ks = t.zeros((1, n_samples)).long()
-      ffs = [None] * self.L_HT
+
       if cond_inds is not None:
         # Compute features for conditional sampling
         ffs = self.conditional_features(cond_inds, cond_X)
+      else:
+        ffs = [None] * self.L_HT
 
       for a, ff in zip(reversed(self.a_HTs), reversed(ffs)):
         # If a.shape[0] is smaller than prev_a.shape[0], truncate ks
@@ -627,7 +629,10 @@ class MDMA(nn.Module):
 
         # Define a CDF function R^(batch_size x self.d) -> [0,1]^(batch_size x self.d) and invert
         def CDF(s):
-          phis = self.phis(s, inds=inds, fast_sample=True, ks=batch_ks)
+          phis = self.phis(s,
+                           inds=inds,
+                           single_phi_per_point=True,
+                           ks=batch_ks)
           return phis.squeeze().t()
 
         samples = utils.invert(CDF,
@@ -710,7 +715,6 @@ class MDMA(nn.Module):
 
   def cond_density(self, X: t.Tensor, inds: List[int], cond_X: t.Tensor,
                    cond_inds: List[int]) -> t.Tensor:
-    #TODO: update for vector cond_X, as well as toy examples
     """ Compute marginal density at points X conditioned on a subset of variables.
 
     Args:
