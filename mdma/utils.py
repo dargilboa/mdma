@@ -35,7 +35,7 @@ def invert(f: Callable,
   x_temp = (xl + xh) / 2
 
   for _ in range(n_bisect_iter):
-    fmx = f(x_temp) - x
+    fmx = f(x_temp).reshape(x.shape) - x
     xl = t.where(fmx < 0, x_temp, xl)
     xh = t.where(fmx < 0, xh, x_temp)
     x_temp = (xl + xh) / 2
